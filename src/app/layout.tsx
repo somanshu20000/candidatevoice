@@ -17,15 +17,8 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={inter.className}>
-      <body>
+      <body className="bg-[#0F172A]">
         {children}
-        <footer
-          style={{ padding: "1rem", textAlign: "center", fontSize: "0.9rem" }}
-        >
-          © {new Date().getFullYear()} CandidateVoice. This site contains
-          user-generated content that is not verified. The content may include
-          inaccurate or unverified information.
-        </footer>
       </body>
     </html>
   );

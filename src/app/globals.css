@@ -7,8 +7,17 @@
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Inter",
     sans-serif;
-  --bg: #ffffff;
-  --text: #0f172a;
+  --bg: #0f172a;
+  --text: #f8fafc;
   --muted: #64748b;
-  --brand: #2563eb;
+  --brand: #38bdf8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background-color: #0f172a;
+  color: #f8fafc;
 }
