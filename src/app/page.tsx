@@ -3,6 +3,7 @@ import { ArrowRight, Shield, Eye, Globe } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import SubmissionCard from "@/components/SubmissionCard";
+import CompanySearch from "@/components/CompanySearch";
 import { submissions } from "@/data/mockData";
 
 const stats = [
@@ -85,6 +86,9 @@ export default function HomePage() {
           ))}
         </div>
       </section>
+
+      {/* Company Search */}
+      <CompanySearch />
 
       {/* How It Works */}
       <section className="max-w-6xl mx-auto px-4 py-16 w-full">

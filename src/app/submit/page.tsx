@@ -3,54 +3,105 @@
 import { useState } from "react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
-import StageBadge from "@/components/StageBadge";
-import { companies } from "@/data/mockData";
-import type { RejectionStage } from "@/data/mockData";
+import { supabase } from "@/lib/supabase/browser";
+import type { HiringSubmission } from "@/types/index";
 import { AlertTriangle, CheckCircle } from "lucide-react";
 
-const STAGES: { value: RejectionStage; label: string }[] = [
-  { value: "applied",     label: "Applied — rejected before any contact"   },
-  { value: "screened",    label: "Screened — rejected after recruiter call" },
-  { value: "interviewed", label: "Interviewed — rejected after interviews"  },
-  { value: "offered",     label: "Offer Rescinded"                          },
-];
-
-const STEP_LABELS = ["Company", "Role & Stage", "Reason", "Experience"];
+type ExperienceBucket = HiringSubmission["experience_bucket"];
+type Stage = HiringSubmission["stage"];
+type Outcome = HiringSubmission["outcome"];
+type ResponseTimeBucket = HiringSubmission["response_time_bucket"];
+type LastInteractionGap = HiringSubmission["last_interaction_gap"];
+type CallDuration = NonNullable<HiringSubmission["call_duration"]>;
+type FirstInteractionOutcome = NonNullable<HiringSubmission["first_interaction_outcome"]>;
+type Reason = NonNullable<HiringSubmission["reason"]>;
+type PaymentFlag = NonNullable<HiringSubmission["payment_flag"]>;
 
 interface FormState {
-  company_id: string;
-  role_title: string;
-  rejection_stage: RejectionStage | "";
-  rejection_reason: string;
-  experience_text: string;
+  company: string;
+  role: string;
+  experience_bucket: ExperienceBucket | "";
+  stage: Stage | "";
+  outcome: Outcome | "";
+  response_time_bucket: ResponseTimeBucket | "";
+  last_interaction_gap: LastInteractionGap | "";
+  call_duration: CallDuration | "";
+  first_interaction_outcome: FirstInteractionOutcome | "";
+  reason: Reason | "";
+  payment_flag: PaymentFlag | "";
 }
+
+const STEP_LABELS = ["Company & Role", "Stage & Outcome", "Timeline", "Details"];
+
+const SELECT_CLS =
+  "w-full bg-[#0F172A] border border-[#334155] text-[#94A3B8] text-sm rounded px-3 py-2.5 focus:outline-none focus:border-[#38BDF8] transition-colors";
+
+const WARNING = (
+  <div className="flex items-start gap-3 border border-[#F87171]/30 bg-[#F87171]/10 rounded p-3 mb-6">
+    <AlertTriangle className="h-4 w-4 text-[#F87171] mt-0.5 shrink-0" />
+    <p className="text-xs text-[#F87171] leading-relaxed">
+      <span className="font-semibold">Do not include names.</span>{" "}
+      Submit honest, factual data only.
+    </p>
+  </div>
+);
+
+const EMPTY: FormState = {
+  company: "", role: "", experience_bucket: "",
+  stage: "", outcome: "",
+  response_time_bucket: "", last_interaction_gap: "",
+  call_duration: "", first_interaction_outcome: "",
+  reason: "", payment_flag: "",
+};
 
 export default function SubmitPage() {
   const [step, setStep] = useState(1);
+  const [form, setForm] = useState<FormState>(EMPTY);
+  const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
-  const [form, setForm] = useState<FormState>({
-    company_id:       "",
-    role_title:       "",
-    rejection_stage:  "",
-    rejection_reason: "",
-    experience_text:  "",
-  });
+  const [error, setError] = useState<string | null>(null);
 
-  function update<K extends keyof FormState>(key: K, value: FormState[K]) {
+  function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((f) => ({ ...f, [key]: value }));
   }
 
   function canAdvance(): boolean {
-    if (step === 1) return form.company_id !== "";
-    if (step === 2) return form.role_title.trim() !== "" && form.rejection_stage !== "";
-    if (step === 3) return form.rejection_reason.trim().length >= 10;
-    if (step === 4) return form.experience_text.trim().length >= 20;
+    if (step === 1) return form.company.trim() !== "" && form.role.trim() !== "" && form.experience_bucket !== "";
+    if (step === 2) return form.stage !== "" && form.outcome !== "";
+    if (step === 3) return form.response_time_bucket !== "" && form.last_interaction_gap !== "" && form.call_duration !== "" && form.first_interaction_outcome !== "";
+    if (step === 4) return form.reason !== "" && form.payment_flag !== "";
     return false;
   }
 
-  function handleSubmit() {
-    // Client-side only for now (Phase 3 will wire to DB)
-    setSubmitted(true);
+  async function handleSubmit() {
+    setSubmitting(true);
+    setError(null);
+    const payload: HiringSubmission = {
+      company: form.company.trim(),
+      role: form.role.trim(),
+      experience_bucket: form.experience_bucket as ExperienceBucket,
+      stage: form.stage as Stage,
+      outcome: form.outcome as Outcome,
+      response_time_bucket: form.response_time_bucket as ResponseTimeBucket,
+      last_interaction_gap: form.last_interaction_gap as LastInteractionGap,
+      call_duration: form.call_duration as CallDuration,
+      first_interaction_outcome: form.first_interaction_outcome as FirstInteractionOutcome,
+      reason: form.reason as Reason,
+      payment_flag: form.payment_flag as PaymentFlag,
+    };
+
+    const { error: sbError } = await supabase
+      .from("hiring_submissions")
+      .insert([payload]);
+
+    setSubmitting(false);
+    if (sbError) {
+      setError("Something went wrong. Please try again.");
+    } else {
+      setSubmitted(true);
+      setForm(EMPTY);
+      setStep(1);
+    }
   }
 
   if (submitted) {
@@ -60,17 +111,25 @@ export default function SubmitPage() {
         <main className="flex-1 flex items-center justify-center px-4">
           <div className="text-center max-w-md">
             <CheckCircle className="h-12 w-12 text-[#38BDF8] mx-auto mb-4" />
-            <h1 className="text-2xl font-bold text-white mb-2">Submission received</h1>
-            <p className="text-[#94A3B8] mb-6">
-              Your experience has been submitted anonymously and is pending moderation review.
-              It will be published once approved.
+            <h1 className="text-2xl font-bold text-white mb-2">Submitted anonymously. Thank you.</h1>
+            <p className="text-[#94A3B8] mb-6 text-sm">
+              Your data helps future candidates understand the hiring process. It may take
+              a moment to appear in search results.
             </p>
-            <a
-              href="/browse"
-              className="inline-flex items-center gap-2 bg-[#38BDF8] text-[#0F172A] px-5 py-2.5 text-sm font-semibold rounded hover:bg-[#7DD3FC] transition-colors"
-            >
-              Browse submissions →
-            </a>
+            <div className="flex gap-3 justify-center">
+              <button
+                onClick={() => setSubmitted(false)}
+                className="text-sm border border-[#334155] text-[#94A3B8] px-4 py-2 rounded hover:border-[#38BDF8] transition-colors"
+              >
+                Submit another
+              </button>
+              <a
+                href="/browse"
+                className="text-sm bg-[#38BDF8] text-[#0F172A] font-semibold px-4 py-2 rounded hover:bg-[#7DD3FC] transition-colors"
+              >
+                Browse data →
+              </a>
+            </div>
           </div>
         </main>
         <Footer />
@@ -81,158 +140,180 @@ export default function SubmitPage() {
   return (
     <div className="min-h-screen bg-[#0F172A] text-white flex flex-col">
       <Navbar />
-
       <main className="max-w-2xl mx-auto px-4 py-12 w-full flex-1">
         <h1 className="text-2xl font-bold text-white mb-2">Share Your Experience</h1>
-        <p className="text-sm text-[#64748B] mb-8">
-          Your submission is anonymous. No personal information is stored.
-        </p>
+        <p className="text-sm text-[#64748B] mb-8">Anonymous. No personal data stored.</p>
 
-        {/* Warning banner */}
-        <div className="flex items-start gap-3 border border-[#F87171]/30 bg-[#F87171]/10 rounded p-3 mb-8">
-          <AlertTriangle className="h-4 w-4 text-[#F87171] mt-0.5 shrink-0" />
-          <p className="text-xs text-[#F87171] leading-relaxed">
-            <span className="font-semibold">Do not include</span> recruiter names, employee names,
-            or proprietary information. Submissions containing these will be rejected during moderation.
-          </p>
-        </div>
-
-        {/* Progress indicator */}
+        {/* Progress bar */}
         <div className="flex items-center gap-0 mb-10">
           {STEP_LABELS.map((label, i) => {
             const num = i + 1;
-            const active    = num === step;
-            const completed = num < step;
+            const active = num === step;
+            const done = num < step;
             return (
               <div key={label} className="flex items-center flex-1">
                 <div className="flex flex-col items-center">
                   <div className={`h-7 w-7 rounded-full border flex items-center justify-center text-xs font-mono font-semibold transition-colors
-                    ${completed ? "bg-[#38BDF8] border-[#38BDF8] text-[#0F172A]" :
-                      active    ? "border-[#38BDF8] text-[#38BDF8]" :
-                                  "border-[#334155] text-[#475569]"}`}
-                  >
-                    {completed ? "✓" : num}
+                    ${done ? "bg-[#38BDF8] border-[#38BDF8] text-[#0F172A]" :
+                      active ? "border-[#38BDF8] text-[#38BDF8]" :
+                               "border-[#334155] text-[#475569]"}`}>
+                    {done ? "✓" : num}
                   </div>
-                  <span className={`text-[10px] font-mono mt-1 ${active ? "text-[#38BDF8]" : "text-[#475569]"}`}>
+                  <span className={`text-[10px] font-mono mt-1 text-center ${active ? "text-[#38BDF8]" : "text-[#475569]"}`}>
                     {label}
                   </span>
                 </div>
                 {i < STEP_LABELS.length - 1 && (
-                  <div className={`flex-1 h-px mx-1 mb-4 ${completed ? "bg-[#38BDF8]" : "bg-[#334155]"}`} />
+                  <div className={`flex-1 h-px mx-1 mb-4 ${done ? "bg-[#38BDF8]" : "bg-[#334155]"}`} />
                 )}
               </div>
             );
           })}
         </div>
 
-        {/* Step content */}
+        {WARNING}
+
         <div className="border border-[#334155] bg-[#1E293B] rounded p-6 mb-6">
 
-          {/* Step 1: Company */}
+          {/* Step 1 */}
           {step === 1 && (
-            <div>
-              <label className="block text-sm font-medium text-white mb-3">
-                Which company rejected you?
-              </label>
-              <select
-                value={form.company_id}
-                onChange={(e) => update("company_id", e.target.value)}
-                className="w-full bg-[#0F172A] border border-[#334155] text-[#94A3B8] text-sm rounded px-3 py-2.5 focus:outline-none focus:border-[#38BDF8] transition-colors"
-              >
-                <option value="">Select a company…</option>
-                {companies.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name} — {c.industry}</option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {/* Step 2: Role & Stage */}
-          {step === 2 && (
-            <div className="space-y-5">
+            <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-white mb-2">
-                  Role title applied for
-                </label>
+                <label className="block text-sm font-medium text-white mb-1">Company name</label>
                 <input
                   type="text"
-                  value={form.role_title}
-                  onChange={(e) => update("role_title", e.target.value)}
-                  placeholder="e.g. Senior Software Engineer"
+                  value={form.company}
+                  onChange={(e) => set("company", e.target.value)}
+                  placeholder="e.g. Razorpay"
                   className="w-full bg-[#0F172A] border border-[#334155] text-[#94A3B8] text-sm rounded px-3 py-2.5 focus:outline-none focus:border-[#38BDF8] transition-colors placeholder:text-[#475569]"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-white mb-3">
-                  At what stage were you rejected?
-                </label>
-                <div className="space-y-2">
-                  {STAGES.map((s) => (
-                    <label
-                      key={s.value}
-                      className={`flex items-center gap-3 border rounded p-3 cursor-pointer transition-colors
-                        ${form.rejection_stage === s.value
-                          ? "border-[#38BDF8] bg-[#38BDF8]/10"
-                          : "border-[#334155] hover:border-[#475569]"}`}
-                    >
-                      <input
-                        type="radio"
-                        name="stage"
-                        value={s.value}
-                        checked={form.rejection_stage === s.value}
-                        onChange={(e) => update("rejection_stage", e.target.value as RejectionStage)}
-                        className="accent-[#38BDF8]"
-                      />
-                      <span className="text-sm text-[#94A3B8]">{s.label}</span>
-                      <span className="ml-auto">
-                        <StageBadge stage={s.value} />
-                      </span>
-                    </label>
-                  ))}
-                </div>
+                <label className="block text-sm font-medium text-white mb-1">Role applied for</label>
+                <input
+                  type="text"
+                  value={form.role}
+                  onChange={(e) => set("role", e.target.value)}
+                  placeholder="e.g. Senior Backend Engineer"
+                  className="w-full bg-[#0F172A] border border-[#334155] text-[#94A3B8] text-sm rounded px-3 py-2.5 focus:outline-none focus:border-[#38BDF8] transition-colors placeholder:text-[#475569]"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-white mb-1">Years of experience</label>
+                <select value={form.experience_bucket} onChange={(e) => set("experience_bucket", e.target.value as ExperienceBucket)} className={SELECT_CLS}>
+                  <option value="">Select…</option>
+                  <option value="0-1">0–1 years</option>
+                  <option value="1-3">1–3 years</option>
+                  <option value="3-5">3–5 years</option>
+                  <option value="5-8">5–8 years</option>
+                  <option value="8+">8+ years</option>
+                </select>
               </div>
             </div>
           )}
 
-          {/* Step 3: Rejection reason */}
-          {step === 3 && (
-            <div>
-              <label className="block text-sm font-medium text-white mb-2">
-                What reason were you given (if any)?
-              </label>
-              <textarea
-                value={form.rejection_reason}
-                onChange={(e) => update("rejection_reason", e.target.value.slice(0, 500))}
-                placeholder="e.g. Did not meet the bar on the system design round."
-                rows={4}
-                className="w-full bg-[#0F172A] border border-[#334155] text-[#94A3B8] text-sm rounded px-3 py-2.5 focus:outline-none focus:border-[#38BDF8] transition-colors placeholder:text-[#475569] resize-none"
-              />
-              <p className="text-right text-[11px] font-mono text-[#475569] mt-1">
-                {form.rejection_reason.length} / 500
-              </p>
+          {/* Step 2 */}
+          {step === 2 && (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-white mb-1">Stage reached</label>
+                <select value={form.stage} onChange={(e) => set("stage", e.target.value as Stage)} className={SELECT_CLS}>
+                  <option value="">Select…</option>
+                  <option value="applied">Applied</option>
+                  <option value="screening">Screening</option>
+                  <option value="technical">Technical</option>
+                  <option value="hr">HR</option>
+                  <option value="final">Final</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-white mb-1">Outcome</label>
+                <select value={form.outcome} onChange={(e) => set("outcome", e.target.value as Outcome)} className={SELECT_CLS}>
+                  <option value="">Select…</option>
+                  <option value="rejected">Rejected</option>
+                  <option value="no_response">No Response</option>
+                  <option value="offer">Offer</option>
+                  <option value="withdrawn">Withdrawn</option>
+                </select>
+              </div>
             </div>
           )}
 
-          {/* Step 4: Full experience */}
+          {/* Step 3 */}
+          {step === 3 && (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-white mb-1">Response time</label>
+                <select value={form.response_time_bucket} onChange={(e) => set("response_time_bucket", e.target.value as ResponseTimeBucket)} className={SELECT_CLS}>
+                  <option value="">Select…</option>
+                  <option value="0-3">0–3 days</option>
+                  <option value="4-7">4–7 days</option>
+                  <option value="8-14">8–14 days</option>
+                  <option value="15+">15+ days</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-white mb-1">Last interaction gap</label>
+                <select value={form.last_interaction_gap} onChange={(e) => set("last_interaction_gap", e.target.value as LastInteractionGap)} className={SELECT_CLS}>
+                  <option value="">Select…</option>
+                  <option value="0-7">0–7 days</option>
+                  <option value="8-14">8–14 days</option>
+                  <option value="15-30">15–30 days</option>
+                  <option value="30+">30+ days</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-white mb-1">Call duration</label>
+                <select value={form.call_duration} onChange={(e) => set("call_duration", e.target.value as CallDuration)} className={SELECT_CLS}>
+                  <option value="">Select…</option>
+                  <option value="<2">&lt;2 min</option>
+                  <option value="2-5">2–5 min</option>
+                  <option value="5-15">5–15 min</option>
+                  <option value="15+">15+ min</option>
+                  <option value="na">N/A</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-white mb-1">First interaction outcome</label>
+                <select value={form.first_interaction_outcome} onChange={(e) => set("first_interaction_outcome", e.target.value as FirstInteractionOutcome)} className={SELECT_CLS}>
+                  <option value="">Select…</option>
+                  <option value="continued">Continued</option>
+                  <option value="rejected_immediately">Rejected immediately</option>
+                  <option value="na">N/A</option>
+                </select>
+              </div>
+            </div>
+          )}
+
+          {/* Step 4 */}
           {step === 4 && (
-            <div>
-              <label className="block text-sm font-medium text-white mb-2">
-                Describe your full experience
-              </label>
-              <p className="text-xs text-[#64748B] mb-3">
-                Include interview format, number of rounds, timeline, and anything
-                a future candidate would find useful.
-              </p>
-              <textarea
-                value={form.experience_text}
-                onChange={(e) => update("experience_text", e.target.value.slice(0, 2000))}
-                placeholder="Walk through the process from application to rejection…"
-                rows={8}
-                className="w-full bg-[#0F172A] border border-[#334155] text-[#94A3B8] text-sm rounded px-3 py-2.5 focus:outline-none focus:border-[#38BDF8] transition-colors placeholder:text-[#475569] resize-none"
-              />
-              <p className="text-right text-[11px] font-mono text-[#475569] mt-1">
-                {form.experience_text.length} / 2000
-              </p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-white mb-1">Reason given</label>
+                <select value={form.reason} onChange={(e) => set("reason", e.target.value as Reason)} className={SELECT_CLS}>
+                  <option value="">Select…</option>
+                  <option value="experience_mismatch">Experience mismatch</option>
+                  <option value="skill_mismatch">Skill mismatch</option>
+                  <option value="culture_fit">Culture fit</option>
+                  <option value="no_reason">No reason given</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-white mb-1">Payment requested?</label>
+                <select value={form.payment_flag} onChange={(e) => set("payment_flag", e.target.value as PaymentFlag)} className={SELECT_CLS}>
+                  <option value="">Select…</option>
+                  <option value="no">No</option>
+                  <option value="before_interview">Before interview</option>
+                  <option value="after_interview">After interview</option>
+                  <option value="training_fee">Training fee</option>
+                </select>
+              </div>
+              {error && (
+                <p className="text-sm text-[#F87171] border border-[#F87171]/30 bg-[#F87171]/10 rounded px-3 py-2">
+                  {error}
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -259,15 +340,14 @@ export default function SubmitPage() {
           ) : (
             <button
               onClick={handleSubmit}
-              disabled={!canAdvance()}
+              disabled={!canAdvance() || submitting}
               className="text-sm bg-[#38BDF8] text-[#0F172A] font-semibold px-5 py-2 rounded hover:bg-[#7DD3FC] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
-              Submit Anonymously →
+              {submitting ? "Submitting…" : "Submit Anonymously →"}
             </button>
           )}
         </div>
       </main>
-
       <Footer />
     </div>
   );
