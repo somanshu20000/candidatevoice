@@ -1,0 +1,63 @@
+# dependencies
+node_modules/
+venv/
+.venv/
+env/
+ENV/
+
+# python
+__pycache__/
+*.pyc
+
+# env
+.env
+.env.local
+.env.*.local
+
+# build
+.next/
+dist/
+build/
+
+# vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
+.AppleDouble
+.LSOverride
+Desktop.ini
+
+# IDE
+.vscode/
+.idea/
+
+# local databases
+*.sqlite
+*.db
+
+# temp
+tmp/
+temp/
+
+# misc
+coverage/
+
+# removed artifact directories — guard against re-addition
+Data/
+lovable-export/
+CandidateVoice/
+
+# project archives
+*.zip
