@@ -7,12 +7,6 @@ import CompanySearch from "@/components/CompanySearch";
 import { createClient } from "@/lib/supabase/server";
 import type { SubmissionCardData } from "@/types/index";
 
-const stats = [
-  { label: "Submissions", value: "1,247" },
-  { label: "Companies",   value: "89"    },
-  { label: "Roles Tracked", value: "234" },
-];
-
 const steps = [
   {
     num: "01",
@@ -23,7 +17,7 @@ const steps = [
   {
     num: "02",
     title: "Moderation review",
-    description: "Every submission is reviewed to ensure no names or proprietary info.",
+    description: "Every submission is reviewed before publication.",
     icon: Eye,
   },
   {
@@ -125,20 +119,6 @@ export default async function HomePage() {
               Browse Data
             </Link>
           </div>
-        </div>
-      </section>
-
-      {/* Stats */}
-      <section className="border-y border-[#334155]">
-        <div className="max-w-6xl mx-auto px-4 py-6 flex items-center gap-12 md:gap-16 flex-wrap">
-          {stats.map((stat) => (
-            <div key={stat.label}>
-              <p className="text-2xl md:text-3xl font-mono font-semibold text-[#38BDF8]">
-                {stat.value}
-              </p>
-              <p className="text-xs text-[#64748B] mt-1">{stat.label}</p>
-            </div>
-          ))}
         </div>
       </section>
 
