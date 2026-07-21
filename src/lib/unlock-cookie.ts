@@ -1,12 +1,11 @@
 import crypto from "crypto";
+import { normalizeCompanySlug } from "@/lib/company-slug";
+
+export { normalizeCompanySlug };
 
 const COOKIE_NAME = "unlocked_companies";
 const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24; // 24 hours
 const MAX_UNLOCKED_COMPANIES = 20;
-
-export function normalizeCompanySlug(input: string) {
-  return input.toLowerCase().trim().replace(/\s+/g, "-");
-}
 
 function getCookieSecret() {
   return process.env.COOKIE_SECRET ?? "";

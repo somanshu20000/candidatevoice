@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { normalizeCompanySlug } from "@/lib/company-slug";
 
 export default function CompanySearch() {
   const [query, setQuery] = useState("");
@@ -9,7 +10,7 @@ export default function CompanySearch() {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const slug = query.trim().toLowerCase().replace(/\s+/g, "-");
+    const slug = normalizeCompanySlug(query);
     if (slug) router.push(`/company/${encodeURIComponent(slug)}`);
   }
 

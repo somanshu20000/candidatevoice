@@ -10,18 +10,13 @@ import {
   normalizeCompanySlug,
 } from "@/lib/unlock-cookie";
 import { sanitizeAndTruncate, FIELD_LIMITS } from "@/utils/sanitize";
+import { checkAndRecordRateLimit } from "@/lib/rate-limit";
+import { getClientIp } from "@/lib/client-ip";
 
 const MAX_SUBMISSIONS_PER_HOUR = 5;
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 
 type SubmissionInsert = Database["public"]["Tables"]["hiring_submissions"]["Insert"];
-
-type RateLimitEntry = {
-  count: number;
-  resetAt: number;
-};
-
-const ipRateLimitStore = new Map<string, RateLimitEntry>();
 
 // Enum allowlists — must stay in sync with submit/page.tsx dropdowns and types/index.ts
 const VALID_STAGES = ["applied", "screening", "technical", "hr", "final"];
@@ -33,40 +28,16 @@ const VALID_CALL_DURATIONS = ["<2", "2-5", "5-15", "15+", "na"];
 const VALID_FIRST_INTERACTION_OUTCOMES = ["continued", "rejected_immediately", "na"];
 const VALID_REASONS = ["experience_mismatch", "skill_mismatch", "culture_fit", "no_reason", "other"];
 
-function getClientIp(req: NextRequest) {
-  const forwardedFor = req.headers.get("x-forwarded-for");
-  if (forwardedFor) {
-    const firstIp = forwardedFor.split(",")[0]?.trim();
-    if (firstIp) return firstIp;
-  }
-  return req.ip ?? "unknown";
-}
-
-function isRateLimited(ip: string) {
-  const now = Date.now();
-  const current = ipRateLimitStore.get(ip);
-
-  if (!current || now >= current.resetAt) {
-    ipRateLimitStore.set(ip, {
-      count: 1,
-      resetAt: now + RATE_LIMIT_WINDOW_MS,
-    });
-    return false;
-  }
-
-  if (current.count >= MAX_SUBMISSIONS_PER_HOUR) {
-    return true;
-  }
-
-  current.count += 1;
-  ipRateLimitStore.set(ip, current);
-  return false;
-}
-
 export async function POST(req: NextRequest) {
   try {
     const ip = getClientIp(req);
-    if (isRateLimited(ip)) {
+    const limited = await checkAndRecordRateLimit(
+      "submit",
+      ip,
+      MAX_SUBMISSIONS_PER_HOUR,
+      RATE_LIMIT_WINDOW_MS
+    );
+    if (limited) {
       return NextResponse.json(
         { error: "Too many submissions from this IP. Please try again later." },
         { status: 429 }

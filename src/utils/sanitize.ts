@@ -8,20 +8,21 @@
  */
 
 /**
- * Strips HTML tags and encodes dangerous characters.
- * Use on all free-text user inputs before DB storage.
+ * Strips HTML tags from free-text user input before DB storage.
+ *
+ * Does not entity-encode the remaining text — every render path in this app
+ * goes through React JSX ({value}), which already escapes on output. Encoding
+ * here too used to double-encode any lone "<"/">"/quote that survived tag
+ * stripping (e.g. "level < 10" stored as "level &lt; 10", then React
+ * re-escaped the "&" on render into a literal "&amp;lt;" on screen). Tag
+ * stripping remains the actual security control; do not reintroduce manual
+ * entity encoding here without removing it from wherever the value is later
+ * rendered as raw HTML instead of through JSX.
  */
 export function sanitizeText(input: string): string {
   return input
     // Remove HTML tags
     .replace(/<[^>]*>/g, "")
-    // Encode remaining angle brackets
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    // Encode quotes
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#x27;")
-    // Trim whitespace
     .trim();
 }
 
@@ -55,14 +56,4 @@ export const FIELD_LIMITS = {
  */
 export function isNonEmpty(input: string): boolean {
   return sanitizeText(input).length > 0;
-}
-
-/**
- * Checks if a string contains a recruiter/employee name pattern.
- * Very basic heuristic. Currently unused; reserved for future moderation use.
- */
-export function containsPersonName(input: string): boolean {
-  // Flag patterns like "John Smith", "Jane Doe" (two capitalized words)
-  const namePattern = /\b[A-Z][a-z]+ [A-Z][a-z]+\b/;
-  return namePattern.test(input);
 }

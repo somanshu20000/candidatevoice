@@ -38,6 +38,8 @@ export interface HiringSubmission {
   payment_flag: boolean;
   is_approved: boolean;
   created_at: string;
+  /** Soft-delete marker set by admin/reject — rejected rows are kept for audit history, not hard-deleted. */
+  rejected_at?: string | null;
 }
 
 export type Database = {

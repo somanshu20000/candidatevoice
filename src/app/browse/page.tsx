@@ -5,6 +5,7 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import SubmissionCard from "@/components/SubmissionCard";
 import { supabase } from "@/lib/supabase/browser";
+import { normalizeCompanySlug } from "@/lib/company-slug";
 import type { HiringStage, SubmissionCardData } from "@/types/index";
 
 type CardStage = "applied" | "screened" | "interviewed" | "offered";
@@ -41,10 +42,6 @@ export default function BrowsePage() {
     () => Math.max(1, Math.ceil(totalCount / PAGE_SIZE)),
     [totalCount]
   );
-
-  function toSlug(name: string) {
-    return name.trim().toLowerCase().replace(/\s+/g, "-");
-  }
 
   function mapStage(stageValue: HiringStage): CardStage {
     if (stageValue === "applied") return "applied";
@@ -100,7 +97,7 @@ export default function BrowsePage() {
         id: row.id,
         company: {
           id: row.company,
-          slug: toSlug(row.company),
+          slug: normalizeCompanySlug(row.company),
           name: row.company,
           industry: "Unknown",
           domain: "",

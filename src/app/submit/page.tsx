@@ -6,6 +6,7 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import type { HiringSubmission } from "@/types/index";
 import { AlertTriangle } from "lucide-react";
+import { normalizeCompanySlug } from "@/lib/company-slug";
 
 type ExperienceBucket = HiringSubmission["experience_bucket"];
 type Stage = HiringSubmission["stage"];
@@ -83,7 +84,7 @@ export default function SubmitPage() {
   async function handleSubmit() {
     setSubmitting(true);
     setError(null);
-    const normalizedCompany = form.company.toLowerCase().trim().replace(/\s+/g, "-");
+    const normalizedCompany = normalizeCompanySlug(form.company);
     if (!normalizedCompany) {
       setSubmitting(false);
       setError("Company is required.");

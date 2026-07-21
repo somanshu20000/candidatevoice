@@ -3,7 +3,7 @@ import { createAdminClient } from "@/lib/supabase/server";
 import { isAuthorizedAdmin } from "@/app/api/admin/_utils";
 
 export async function POST(req: NextRequest) {
-  const auth = isAuthorizedAdmin(req);
+  const auth = await isAuthorizedAdmin(req);
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -15,12 +15,29 @@ export async function POST(req: NextRequest) {
   }
 
   const supabase = createAdminClient();
-  const { error } = await (supabase.from("hiring_submissions") as any)
-    .update({ is_approved: true })
+
+  // Clear rejected_at on approve so a previously-rejected row can never end
+  // up publicly visible (is_approved=true) while still flagged as rejected —
+  // approve and reject must keep is_approved/rejected_at mutually consistent.
+  // Falls back to the plain update if rejected_at doesn't exist yet
+  // (migration not applied) — see
+  // supabase/migrations/0001_rate_limit_and_moderation_audit.sql.
+  const { error: updateError } = await (supabase.from("hiring_submissions") as any)
+    .update({ is_approved: true, rejected_at: null })
     .eq("id", id);
 
-  if (error) {
-    return NextResponse.json({ error: "Unable to approve submission." }, { status: 500 });
+  if (updateError) {
+    console.warn(
+      "[admin/approve] update with rejected_at failed, falling back — has the rejected_at migration been applied?",
+      updateError
+    );
+    const { error: fallbackError } = await (supabase.from("hiring_submissions") as any)
+      .update({ is_approved: true })
+      .eq("id", id);
+
+    if (fallbackError) {
+      return NextResponse.json({ error: "Unable to approve submission." }, { status: 500 });
+    }
   }
 
   return NextResponse.json({ ok: true });
