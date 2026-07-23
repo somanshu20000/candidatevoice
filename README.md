@@ -1,6 +1,6 @@
 # CandidateVoice
 
-Open-source candidate experience intelligence platform.
+Open-source platform for collecting, verifying, and analyzing anonymous candidate interview experiences across companies.
 
 ## Problem
 
