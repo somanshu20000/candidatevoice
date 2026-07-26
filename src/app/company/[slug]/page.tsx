@@ -18,6 +18,15 @@ interface Props {
   params: { slug: string };
 }
 
+/**
+ * Minimum reports before any derived figure is shown publicly.
+ *
+ * Matches the gate already applied to the headline HQS number. Named rather than
+ * inlined so the two surfaces cannot drift apart — they previously had, with the
+ * score suppressed and the breakdown shown from the same sample.
+ */
+const MIN_SUBMISSIONS_FOR_BREAKDOWN = 5;
+
 const STAGE_LABELS: Record<string, string> = {
   applied: "Applied", screening: "Screening", technical: "Technical",
   hr: "HR", final: "Final",
@@ -150,6 +159,9 @@ export default async function CompanyPage({ params }: Props) {
   }
 
   const metrics = calculateHQS(rows)!;
+  // Same threshold that gates the headline score, applied to the breakdown too
+  // so the page is consistent about what counts as enough evidence.
+  const hasEnoughForBreakdown = metrics.total >= MIN_SUBMISSIONS_FOR_BREAKDOWN;
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -160,7 +172,7 @@ export default async function CompanyPage({ params }: Props) {
         <div className="mb-8 pb-8 border-b border-rule">
           <h1 className="font-serif text-4xl text-ink capitalize mb-2">{displayName}</h1>
           <p className="text-xs font-mono uppercase tracking-wider text-ink-muted">
-            Based on {metrics.total} anonymous submissions
+            Based on {metrics.total} anonymous {metrics.total === 1 ? "submission" : "submissions"}
           </p>
         </div>
 
@@ -184,7 +196,7 @@ export default async function CompanyPage({ params }: Props) {
             ) : (
               <>
                 <p className="font-serif text-3xl text-ink-muted leading-none">Not enough data</p>
-                <p className="text-xs text-ink-muted mt-2">Score available after 5+ submissions</p>
+                <p className="text-xs text-ink-muted mt-2">Score available after {MIN_SUBMISSIONS_FOR_BREAKDOWN}+ submissions</p>
               </>
             )}
           </div>
@@ -192,28 +204,56 @@ export default async function CompanyPage({ params }: Props) {
             <span className={`inline-flex items-center border px-3 py-1 rounded-full text-[10px] font-mono uppercase tracking-wider font-medium ${confidenceBadge(metrics.confidence)}`}>
               {metrics.confidence} confidence
             </span>
-            <p className="text-xs text-ink-faint mt-2 tnum">{metrics.total} submissions</p>
+            <p className="text-xs text-ink-faint mt-2 tnum">
+              {metrics.total} {metrics.total === 1 ? "submission" : "submissions"}
+            </p>
           </div>
         </div>
 
         {isUnlocked ? (
-          <div className="grid md:grid-cols-2 gap-6 mb-8">
-            {/* Metrics */}
-            <div className="border border-rule bg-paper-sheet rounded-sm p-6 shadow-sheet">
-              <h2 className="font-serif text-lg text-ink mb-4">Breakdown</h2>
-              <MetricRow label="Ghost Rate"           value={metrics.ghostRate} />
-              <MetricRow label="Early Rejection Rate" value={metrics.earlyRejectRate} />
-              <MetricRow label="Transparency Score"   value={metrics.transparencyRate} />
-              <MetricRow label="Payment Risk"         value={metrics.paymentRate} />
-              <MetricRow label="Response Speed Score" value={metrics.responseScore} suffix="" />
-            </div>
+          hasEnoughForBreakdown ? (
+            <div className="grid md:grid-cols-2 gap-6 mb-8">
+              {/* Metrics */}
+              <div className="border border-rule bg-paper-sheet rounded-sm p-6 shadow-sheet">
+                <h2 className="font-serif text-lg text-ink mb-4">Breakdown</h2>
+                <MetricRow label="Ghost Rate"           value={metrics.ghostRate} />
+                <MetricRow label="Early Rejection Rate" value={metrics.earlyRejectRate} />
+                <MetricRow label="Transparency Score"   value={metrics.transparencyRate} />
+                <MetricRow label="Payment Risk"         value={metrics.paymentRate} />
+                <MetricRow label="Response Speed Score" value={metrics.responseScore} suffix="" />
+              </div>
 
-            {/* Stage distribution */}
-            <div className="border border-rule bg-paper-sheet rounded-sm p-6 shadow-sheet">
-              <h2 className="font-serif text-lg text-ink mb-4">Stage distribution</h2>
-              <StageBar data={rows} />
+              {/* Stage distribution */}
+              <div className="border border-rule bg-paper-sheet rounded-sm p-6 shadow-sheet">
+                <h2 className="font-serif text-lg text-ink mb-4">Stage distribution</h2>
+                <StageBar data={rows} />
+              </div>
             </div>
-          </div>
+          ) : (
+            /* Below the threshold the page previously suppressed the single
+               headline score while still rendering five per-metric percentages
+               derived from the same handful of reports — the caution was applied
+               to one number and not to the five noisier ones beside it. With
+               n=1 every metric is a bare 0% or 100%, which reads as a confident
+               finding and, at that sample size, also exposes one person's
+               individual answers. */
+            <div className="border border-dashed border-rule-strong bg-paper-sheet rounded-sm p-10 text-center mb-8">
+              <p className="text-sm text-ink-soft mb-1">
+                Breakdown available after {MIN_SUBMISSIONS_FOR_BREAKDOWN} reports.
+              </p>
+              <p className="text-xs text-ink-muted mb-6">
+                {metrics.total === 1
+                  ? "One report cannot show a pattern — every rate would read 0% or 100%."
+                  : `${metrics.total} reports so far. Percentages from this few would imply precision the data does not have.`}
+              </p>
+              <Link
+                href={`/submit?company=${encodeURIComponent(companySlug)}`}
+                className="inline-flex items-center gap-2 bg-accent text-paper-sheet px-5 py-2.5 text-sm font-medium rounded-sm hover:bg-accent-hover transition-colors"
+              >
+                Add your experience →
+              </Link>
+            </div>
+          )
         ) : (
           <div className="space-y-6 mb-8">
             <div className="border border-rule bg-paper-sheet rounded-sm p-6 shadow-sheet">
