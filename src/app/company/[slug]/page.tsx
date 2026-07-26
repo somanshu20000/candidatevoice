@@ -1,9 +1,12 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { calculateHQS } from "@/utils/hqs";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import CompanyOverview, { CompanyActions } from "@/components/CompanyOverview";
+import { loadCompanyProfile } from "@/lib/company-intelligence/read";
 import type { HiringSubmission } from "@/types/index";
 import {
   COOKIE_NAME,
@@ -87,30 +90,59 @@ export default async function CompanyPage({ params }: Props) {
   );
   const isUnlocked = unlockedCompanies.includes(companySlug);
 
-  const { data, error } = await supabase
-    .from("hiring_submissions")
-    .select("*")
-    .eq("company", companySlug)
-    .eq("is_approved", true);
+  // Evidence and imported metadata are fetched independently — different data
+  // families, different queries, never mixed. The metadata read uses an untyped
+  // client view because the Company Intelligence tables are not in the Database
+  // type; they are all public reference data, so the anon client suffices.
+  const [{ data, error }, profile] = await Promise.all([
+    supabase
+      .from("hiring_submissions")
+      .select("*")
+      .eq("company", companySlug)
+      .eq("is_approved", true),
+    // Never let a metadata failure (paused DB, missing RPC, network error) take
+    // down the whole company page — the evidence view must still render.
+    loadCompanyProfile(supabase as unknown as SupabaseClient, companySlug).catch(() => null),
+  ]);
 
   const rows: HiringSubmission[] = (error || !data) ? [] : data;
+  const displayName = profile?.displayName ?? companyName;
 
+  // Zero reports no longer means an empty page: a company seeded from imported
+  // metadata still shows a full profile, with an explicit "no reports yet"
+  // state instead of the reports.
   if (rows.length === 0) {
     return (
       <div className="min-h-screen flex flex-col">
         <Navbar />
-        <main className="max-w-2xl mx-auto px-4 py-24 w-full flex-1 text-center">
-          <h1 className="font-serif text-4xl text-ink mb-3 capitalize">{companyName}</h1>
-          <p className="text-ink-soft mb-1">Not enough data yet.</p>
-          <p className="text-sm text-ink-muted mb-10">
-            Be the first to reveal how this company hires.
-          </p>
-          <Link
-            href={`/submit?company=${encodeURIComponent(companySlug)}`}
-            className="inline-flex items-center gap-2 bg-accent text-paper-sheet px-6 py-3 text-sm font-medium rounded-sm hover:bg-accent-hover transition-colors"
-          >
-            Be the first to submit your experience →
-          </Link>
+        <main className="max-w-4xl mx-auto px-4 py-14 w-full flex-1">
+          <div className="mb-8 pb-8 border-b border-rule">
+            <h1 className="font-serif text-4xl text-ink capitalize mb-2">{displayName}</h1>
+            {profile?.hasMetadata && (
+              <p className="text-xs font-mono uppercase tracking-wider text-ink-muted">
+                Company profile · no hiring reports yet
+              </p>
+            )}
+          </div>
+
+          <CompanyActions slug={companySlug} />
+
+          {profile?.hasMetadata && <CompanyOverview profile={profile} />}
+
+          <div className="border border-dashed border-rule-strong bg-paper-sheet rounded-sm p-12 text-center">
+            <p className="text-ink-soft mb-1">No CandidateVoice hiring reports yet.</p>
+            <p className="text-sm text-ink-muted mb-6">
+              {profile?.hasMetadata
+                ? "The facts above are public metadata. Be the first to reveal how this company actually hires."
+                : "Be the first to reveal how this company hires."}
+            </p>
+            <Link
+              href={`/submit?company=${encodeURIComponent(companySlug)}`}
+              className="inline-flex items-center gap-2 bg-accent text-paper-sheet px-6 py-3 text-sm font-medium rounded-sm hover:bg-accent-hover transition-colors"
+            >
+              Be the first to submit your experience →
+            </Link>
+          </div>
         </main>
         <Footer />
       </div>
@@ -125,12 +157,16 @@ export default async function CompanyPage({ params }: Props) {
       <main className="max-w-4xl mx-auto px-4 py-14 w-full flex-1">
 
         {/* Header */}
-        <div className="mb-10 pb-8 border-b border-rule">
-          <h1 className="font-serif text-4xl text-ink capitalize mb-2">{companyName}</h1>
+        <div className="mb-8 pb-8 border-b border-rule">
+          <h1 className="font-serif text-4xl text-ink capitalize mb-2">{displayName}</h1>
           <p className="text-xs font-mono uppercase tracking-wider text-ink-muted">
             Based on {metrics.total} anonymous submissions
           </p>
         </div>
+
+        <CompanyActions slug={companySlug} />
+
+        {profile?.hasMetadata && <CompanyOverview profile={profile} />}
 
         {/* HQS score */}
         <div className={`border ${hqsBorderColor(metrics.hqs)} bg-paper-sheet rounded-sm p-8 mb-8 shadow-sheet flex items-center justify-between gap-6`}>

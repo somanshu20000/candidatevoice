@@ -7,7 +7,13 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint . --ext .ts,.tsx",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "companies:validate": "tsx scripts/validate-companies.ts",
+    "companies:import": "tsx scripts/import-companies.ts",
+    "companies:sync": "tsx scripts/sync-companies.ts",
+    "companies:aliases": "tsx scripts/update-aliases.ts"
   },
   "dependencies": {
     "@supabase/ssr": "0.5.2",
@@ -25,6 +31,8 @@
     "postcss": "8.5.20",
     "prettier": "2.8.8",
     "tailwindcss": "3.0.0",
-    "typescript": "^4.9.5"
+    "tsx": "^4.19.2",
+    "typescript": "^4.9.5",
+    "vitest": "^4.1.10"
   }
 }
