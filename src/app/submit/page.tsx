@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import type { HiringSubmission } from "@/types/index";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Check } from "lucide-react";
 import { normalizeCompanySlug } from "@/lib/company-slug";
 
 type ExperienceBucket = HiringSubmission["experience_bucket"];
@@ -60,11 +60,12 @@ const EMPTY: FormState = {
 };
 
 export default function SubmitPage() {
-  const router = useRouter();
   const [step, setStep] = useState(1);
   const [form, setForm] = useState<FormState>(EMPTY);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Company slug of a completed submission; switches the page to the confirmation view. */
+  const [submittedTo, setSubmittedTo] = useState<string | null>(null);
 
   useEffect(() => {
     const companyFromQuery = new URLSearchParams(window.location.search).get("company");
@@ -122,8 +123,76 @@ export default function SubmitPage() {
       const body = (await response.json().catch(() => null)) as { error?: string } | null;
       setError(body?.error ?? "Something went wrong. Please try again.");
     } else {
-      router.push(`/company/${encodeURIComponent(normalizedCompany)}?unlocked=true`);
+      // Show a confirmation rather than redirecting straight to the company
+      // page. The previous behaviour pushed to /company/[slug]?unlocked=true —
+      // a query param nothing ever read — where a submission awaiting
+      // moderation is (correctly) invisible. If it was the company's only
+      // report the user landed back on "be the first to submit", with no
+      // acknowledgement that anything had happened.
+      setSubmittedTo(normalizedCompany);
     }
+  }
+
+  // --- Confirmation ---------------------------------------------------------
+  if (submittedTo) {
+    return (
+      <div className="min-h-screen flex flex-col">
+        <Navbar />
+        <main className="max-w-2xl mx-auto px-4 py-20 w-full flex-1">
+          <div className="border border-rule bg-paper-sheet rounded-sm p-10 shadow-sheet text-center">
+            <div className="inline-flex items-center justify-center h-12 w-12 rounded-full border border-good/40 bg-[#E8F0EA] mb-6">
+              <Check className="h-6 w-6 text-good" />
+            </div>
+
+            <h1 className="font-serif text-3xl text-ink mb-3">Submission received</h1>
+            <p className="text-sm text-ink-soft leading-relaxed mb-8 max-w-md mx-auto">
+              Your report about{" "}
+              <span className="text-ink capitalize font-medium">
+                {submittedTo.replace(/-/g, " ")}
+              </span>{" "}
+              is queued for review. A human reads every submission before it is
+              published, so it will not appear on the site straight away.
+            </p>
+
+            <div className="text-left border-t border-rule pt-6 mb-8 space-y-3">
+              <p className="text-xs font-mono uppercase tracking-wider text-ink-muted">
+                What happens next
+              </p>
+              <ul className="text-sm text-ink-soft space-y-2">
+                <li>— A moderator checks it for names and identifying details.</li>
+                <li>— If it passes, it joins that company&apos;s public data.</li>
+                <li>
+                  — Because reports are anonymous, we have no way to contact you
+                  about the outcome, and no way to link this report back to you.
+                </li>
+              </ul>
+            </div>
+
+            <div className="flex flex-wrap gap-2.5 justify-center">
+              <Link
+                href={`/company/${encodeURIComponent(submittedTo)}`}
+                className="inline-flex items-center gap-2 bg-accent text-paper-sheet px-5 py-2.5 text-sm font-medium rounded-sm hover:bg-accent-hover transition-colors"
+              >
+                View {submittedTo.replace(/-/g, " ")}
+              </Link>
+              <button
+                type="button"
+                onClick={() => {
+                  setForm(EMPTY);
+                  setStep(1);
+                  setError(null);
+                  setSubmittedTo(null);
+                }}
+                className="inline-flex items-center gap-2 border border-rule-strong bg-paper-sheet text-ink-soft px-5 py-2.5 text-sm font-medium rounded-sm hover:border-ink-faint hover:text-ink transition-colors"
+              >
+                Share another experience
+              </button>
+            </div>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    );
   }
 
   return (
