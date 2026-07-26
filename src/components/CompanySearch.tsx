@@ -15,24 +15,32 @@ export default function CompanySearch() {
   }
 
   return (
-    <section className="max-w-6xl mx-auto px-4 py-10 w-full border-b border-[#334155]">
-      <h2 className="text-xl font-semibold text-white mb-4">Search a company</h2>
-      <form onSubmit={handleSubmit} className="flex gap-3 max-w-lg">
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="e.g. Google, Razorpay, Swiggy..."
-          className="flex-1 bg-[#1E293B] border border-[#334155] text-white text-sm rounded px-4 py-2.5 focus:outline-none focus:border-[#38BDF8] transition-colors placeholder:text-[#475569]"
-        />
-        <button
-          type="submit"
-          disabled={!query.trim()}
-          className="bg-[#38BDF8] text-[#0F172A] text-sm font-semibold px-4 py-2.5 rounded hover:bg-[#7DD3FC] disabled:opacity-40 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
-        >
-          View Hiring Intel
-        </button>
-      </form>
+    <section className="border-y border-rule bg-paper-sheet">
+      <div className="max-w-6xl mx-auto px-4 py-12 w-full">
+        <h2 className="font-serif text-2xl text-ink mb-5">Search a company</h2>
+        <form onSubmit={handleSubmit} className="flex gap-2.5 max-w-lg">
+          {/* Visually hidden label — the input previously had only a placeholder,
+              which leaves screen readers without an accessible name. */}
+          <label htmlFor="company-search" className="sr-only">
+            Company name
+          </label>
+          <input
+            id="company-search"
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="e.g. Google, Razorpay, Swiggy..."
+            className="flex-1 bg-paper border border-rule text-ink text-sm rounded-sm px-4 py-2.5 shadow-press focus:outline-none focus:border-accent transition-colors placeholder:text-ink-faint"
+          />
+          <button
+            type="submit"
+            disabled={!query.trim()}
+            className="bg-accent text-paper-sheet text-sm font-medium px-5 py-2.5 rounded-sm hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+          >
+            View Hiring Intel
+          </button>
+        </form>
+      </div>
     </section>
   );
 }

@@ -21,31 +21,31 @@ const STAGE_LABELS: Record<string, string> = {
 };
 
 function hqsColor(score: number): string {
-  if (score >= 80) return "text-green-400";
-  if (score >= 50) return "text-amber-400";
-  return "text-[#F87171]";
+  if (score >= 80) return "text-good";
+  if (score >= 50) return "text-warn";
+  return "text-bad";
 }
 
 function hqsBorderColor(score: number): string {
-  if (score >= 80) return "border-green-400/30";
-  if (score >= 50) return "border-amber-400/30";
-  return "border-[#F87171]/30";
+  if (score >= 80) return "border-[#C5DBCC]";
+  if (score >= 50) return "border-[#E3D4AE]";
+  return "border-[#E6C4BF]";
 }
 
 function confidenceBadge(confidence: string) {
   const cfg: Record<string, string> = {
-    high:   "bg-green-400/10 text-green-400 border-green-400/30",
-    medium: "bg-amber-400/10 text-amber-400 border-amber-400/30",
-    low:    "bg-[#64748B]/10 text-[#64748B] border-[#334155]",
+    high:   "bg-[#E8F0EA] text-good border-[#C5DBCC]",
+    medium: "bg-[#F4EEDD] text-warn border-[#E3D4AE]",
+    low:    "bg-paper-sunk text-ink-muted border-rule-strong",
   };
   return cfg[confidence] ?? cfg.low;
 }
 
 function MetricRow({ label, value, suffix = "%" }: { label: string; value: number; suffix?: string }) {
   return (
-    <div className="flex items-center justify-between py-2 border-b border-[#334155] last:border-0">
-      <span className="text-sm text-[#94A3B8]">{label}</span>
-      <span className="font-mono text-sm font-semibold text-white">{value}{suffix}</span>
+    <div className="flex items-center justify-between py-2.5 border-b border-rule last:border-0">
+      <span className="text-sm text-ink-soft">{label}</span>
+      <span className="font-mono text-sm font-medium text-ink tnum">{value}{suffix}</span>
     </div>
   );
 }
@@ -60,17 +60,17 @@ function StageBar({ data }: { data: HiringSubmission[] }) {
   })).filter((x) => x.count > 0);
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2.5">
       {counts.map(({ stage, label, count }) => (
         <div key={stage} className="flex items-center gap-3">
-          <span className="text-xs text-[#64748B] w-20 shrink-0">{label}</span>
-          <div className="flex-1 bg-[#0F172A] rounded-full h-2">
+          <span className="text-xs text-ink-muted w-20 shrink-0">{label}</span>
+          <div className="flex-1 bg-paper-sunk rounded-full h-1.5">
             <div
-              className="bg-[#38BDF8] h-2 rounded-full transition-all"
+              className="bg-accent h-1.5 rounded-full transition-all"
               style={{ width: `${Math.round((count / total) * 100)}%` }}
             />
           </div>
-          <span className="text-xs font-mono text-[#64748B] w-8 text-right">{count}</span>
+          <span className="text-xs font-mono text-ink-muted w-8 text-right tnum">{count}</span>
         </div>
       ))}
     </div>
@@ -97,18 +97,17 @@ export default async function CompanyPage({ params }: Props) {
 
   if (rows.length === 0) {
     return (
-      <div className="min-h-screen bg-[#0F172A] text-white flex flex-col">
+      <div className="min-h-screen flex flex-col">
         <Navbar />
-        <main className="max-w-2xl mx-auto px-4 py-20 w-full flex-1 text-center">
-          <p className="text-4xl mb-4">🔍</p>
-          <h1 className="text-2xl font-bold text-white mb-2 capitalize">{companyName}</h1>
-          <p className="text-[#94A3B8] mb-2">Not enough data yet.</p>
-          <p className="text-sm text-[#64748B] mb-8">
+        <main className="max-w-2xl mx-auto px-4 py-24 w-full flex-1 text-center">
+          <h1 className="font-serif text-4xl text-ink mb-3 capitalize">{companyName}</h1>
+          <p className="text-ink-soft mb-1">Not enough data yet.</p>
+          <p className="text-sm text-ink-muted mb-10">
             Be the first to reveal how this company hires.
           </p>
           <Link
             href={`/submit?company=${encodeURIComponent(companySlug)}`}
-            className="inline-flex items-center gap-2 bg-[#38BDF8] text-[#0F172A] px-5 py-2.5 text-sm font-semibold rounded hover:bg-[#7DD3FC] transition-colors"
+            className="inline-flex items-center gap-2 bg-accent text-paper-sheet px-6 py-3 text-sm font-medium rounded-sm hover:bg-accent-hover transition-colors"
           >
             Be the first to submit your experience →
           </Link>
@@ -121,45 +120,51 @@ export default async function CompanyPage({ params }: Props) {
   const metrics = calculateHQS(rows)!;
 
   return (
-    <div className="min-h-screen bg-[#0F172A] text-white flex flex-col">
+    <div className="min-h-screen flex flex-col">
       <Navbar />
-      <main className="max-w-4xl mx-auto px-4 py-12 w-full flex-1">
+      <main className="max-w-4xl mx-auto px-4 py-14 w-full flex-1">
 
         {/* Header */}
-        <div className="mb-10 pb-8 border-b border-[#334155]">
-          <h1 className="text-3xl font-bold text-white capitalize mb-1">{companyName}</h1>
-          <p className="text-xs text-[#64748B]">Based on {metrics.total} anonymous submissions</p>
+        <div className="mb-10 pb-8 border-b border-rule">
+          <h1 className="font-serif text-4xl text-ink capitalize mb-2">{companyName}</h1>
+          <p className="text-xs font-mono uppercase tracking-wider text-ink-muted">
+            Based on {metrics.total} anonymous submissions
+          </p>
         </div>
 
         {/* HQS score */}
-        <div className={`border ${hqsBorderColor(metrics.hqs)} bg-[#1E293B] rounded p-6 mb-8 flex items-center justify-between`}>
+        <div className={`border ${hqsBorderColor(metrics.hqs)} bg-paper-sheet rounded-sm p-8 mb-8 shadow-sheet flex items-center justify-between gap-6`}>
           <div>
-            <p className="text-xs font-mono text-[#64748B] mb-1">Hiring Quality Score</p>
+            <p className="text-[10px] font-mono uppercase tracking-wider text-ink-muted mb-2">
+              Hiring Quality Score
+            </p>
             {metrics.total >= 5 ? (
               <>
-                <p className={`text-6xl font-mono font-bold ${hqsColor(metrics.hqs)}`}>{metrics.hqs}</p>
-                <p className="text-xs text-[#64748B] mt-1">out of 100</p>
+                <p className={`font-serif text-7xl leading-none tnum ${hqsColor(metrics.hqs)}`}>
+                  {metrics.hqs}
+                </p>
+                <p className="text-xs text-ink-muted mt-2">out of 100</p>
               </>
             ) : (
               <>
-                <p className="text-2xl font-mono font-semibold text-[#64748B]">Not enough data</p>
-                <p className="text-xs text-[#64748B] mt-1">Score available after 5+ submissions</p>
+                <p className="font-serif text-3xl text-ink-muted leading-none">Not enough data</p>
+                <p className="text-xs text-ink-muted mt-2">Score available after 5+ submissions</p>
               </>
             )}
           </div>
-          <div className="text-right">
-            <span className={`inline-flex items-center border px-3 py-1 rounded-full text-xs font-mono font-semibold ${confidenceBadge(metrics.confidence)}`}>
+          <div className="text-right shrink-0">
+            <span className={`inline-flex items-center border px-3 py-1 rounded-full text-[10px] font-mono uppercase tracking-wider font-medium ${confidenceBadge(metrics.confidence)}`}>
               {metrics.confidence} confidence
             </span>
-            <p className="text-xs text-[#475569] mt-2">{metrics.total} submissions</p>
+            <p className="text-xs text-ink-faint mt-2 tnum">{metrics.total} submissions</p>
           </div>
         </div>
 
         {isUnlocked ? (
           <div className="grid md:grid-cols-2 gap-6 mb-8">
             {/* Metrics */}
-            <div className="border border-[#334155] bg-[#1E293B] rounded p-5">
-              <h2 className="text-sm font-semibold text-white mb-4">Breakdown</h2>
+            <div className="border border-rule bg-paper-sheet rounded-sm p-6 shadow-sheet">
+              <h2 className="font-serif text-lg text-ink mb-4">Breakdown</h2>
               <MetricRow label="Ghost Rate"           value={metrics.ghostRate} />
               <MetricRow label="Early Rejection Rate" value={metrics.earlyRejectRate} />
               <MetricRow label="Transparency Score"   value={metrics.transparencyRate} />
@@ -168,41 +173,45 @@ export default async function CompanyPage({ params }: Props) {
             </div>
 
             {/* Stage distribution */}
-            <div className="border border-[#334155] bg-[#1E293B] rounded p-5">
-              <h2 className="text-sm font-semibold text-white mb-4">Stage distribution</h2>
+            <div className="border border-rule bg-paper-sheet rounded-sm p-6 shadow-sheet">
+              <h2 className="font-serif text-lg text-ink mb-4">Stage distribution</h2>
               <StageBar data={rows} />
             </div>
           </div>
         ) : (
           <div className="space-y-6 mb-8">
-            <div className="border border-[#334155] bg-[#1E293B] rounded p-5">
-              <h2 className="text-sm font-semibold text-white mb-3">Unlock full insights</h2>
-              <p className="text-sm text-[#94A3B8] mb-3">
-                - Ghost rate<br />
-                - Rejection patterns<br />
-                - Screening quality
-              </p>
-              <p className="text-xs text-[#64748B] mb-4">
+            <div className="border border-rule bg-paper-sheet rounded-sm p-6 shadow-sheet">
+              <h2 className="font-serif text-lg text-ink mb-3">Unlock full insights</h2>
+              <ul className="text-sm text-ink-soft mb-4 space-y-1">
+                <li>— Ghost rate</li>
+                <li>— Rejection patterns</li>
+                <li>— Screening quality</li>
+              </ul>
+              <p className="text-xs text-ink-muted mb-5">
                 Submit your experience to unlock (2 mins, anonymous)
               </p>
               <Link
                 href={`/submit?company=${encodeURIComponent(companySlug)}`}
-                className="inline-flex items-center gap-2 bg-[#38BDF8] text-[#0F172A] px-4 py-2 text-sm font-semibold rounded hover:bg-[#7DD3FC] transition-colors"
+                className="inline-flex items-center gap-2 bg-accent text-paper-sheet px-5 py-2.5 text-sm font-medium rounded-sm hover:bg-accent-hover transition-colors"
               >
                 Unlock insights →
               </Link>
             </div>
 
-            <div className="relative border border-[#334155] bg-[#1E293B] rounded p-5 opacity-30 pointer-events-none select-none">
-              <h2 className="text-sm font-semibold text-white mb-4">Breakdown</h2>
-              {["Ghost Rate", "Early Rejection Rate", "Transparency Score", "Payment Risk", "Response Speed Score"].map((label) => (
-                <div key={label} className="flex items-center justify-between py-2 border-b border-[#334155] last:border-0">
-                  <span className="text-sm text-[#94A3B8]">{label}</span>
-                  <span className="font-mono text-sm font-semibold text-white">—</span>
-                </div>
-              ))}
+            {/* Placeholder only — real metric values are never sent to the client
+                while locked, so this cannot be revealed with devtools. */}
+            <div className="relative border border-dashed border-rule-strong bg-paper-sheet rounded-sm p-6 select-none">
+              <h2 className="font-serif text-lg text-ink-faint mb-4">Breakdown</h2>
+              <div className="opacity-40 pointer-events-none">
+                {["Ghost Rate", "Early Rejection Rate", "Transparency Score", "Payment Risk", "Response Speed Score"].map((label) => (
+                  <div key={label} className="flex items-center justify-between py-2.5 border-b border-rule last:border-0">
+                    <span className="text-sm text-ink-soft">{label}</span>
+                    <span className="font-mono text-sm text-ink-faint">—</span>
+                  </div>
+                ))}
+              </div>
               <div className="absolute inset-0 flex items-center justify-center">
-                <span className="border border-[#334155] bg-[#0F172A] px-3 py-1 rounded text-xs text-[#94A3B8]">
+                <span className="border border-rule-strong bg-paper px-3 py-1 rounded-sm text-[10px] font-mono uppercase tracking-wider text-ink-muted">
                   Locked
                 </span>
               </div>
@@ -210,7 +219,7 @@ export default async function CompanyPage({ params }: Props) {
           </div>
         )}
 
-        <p className="text-xs text-[#475569] text-center">
+        <p className="text-xs text-ink-faint text-center">
           {isUnlocked
             ? "Full insights unlocked for this company · All data is anonymized"
             : "Summary visible · Submit to unlock full insights"}

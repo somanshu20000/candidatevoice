@@ -2,21 +2,24 @@ import Link from "next/link";
 
 export default function Navbar() {
   return (
-    <nav className="border-b border-[#334155] bg-[#0F172A] sticky top-0 z-50">
-      <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
-        <Link href="/" className="font-mono text-sm font-bold text-white tracking-tight">
+    <nav className="border-b border-rule bg-paper sticky top-0 z-50">
+      <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+        <Link
+          href="/"
+          className="font-serif text-xl text-ink tracking-tight hover:text-accent transition-colors"
+        >
           CandidateVoice
         </Link>
         <div className="flex items-center gap-6">
           <Link
             href="/browse"
-            className="text-sm text-[#94A3B8] hover:text-white transition-colors"
+            className="text-sm text-ink-muted hover:text-ink transition-colors"
           >
             Browse
           </Link>
           <Link
             href="/submit"
-            className="text-sm bg-[#38BDF8] text-[#0F172A] font-medium px-3 py-1.5 rounded hover:bg-[#7DD3FC] transition-colors"
+            className="text-sm bg-accent text-paper-sheet font-medium px-4 py-2 rounded-sm hover:bg-accent-hover transition-colors"
           >
             Share Experience
           </Link>
@@ -24,7 +27,7 @@ export default function Navbar() {
             href="https://github.com/somanshu20000/candidatevoice"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-[#94A3B8] hover:text-white transition-colors"
+            className="text-ink-faint hover:text-ink transition-colors"
             aria-label="GitHub"
           >
             <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">

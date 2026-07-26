@@ -88,33 +88,33 @@ export default async function HomePage() {
     });
 
   return (
-    <div className="min-h-screen bg-[#0F172A] text-white flex flex-col">
+    <div className="min-h-screen flex flex-col">
       <Navbar />
 
       {/* Hero */}
       <section className="max-w-6xl mx-auto px-4 pt-20 pb-16 w-full">
         <div className="max-w-3xl">
-          <span className="inline-flex items-center border border-[#334155] bg-[#1E293B] px-3 py-1 text-xs font-mono text-[#64748B] mb-6 rounded">
+          <span className="inline-flex items-center border border-rule bg-paper-sheet px-3 py-1 text-[10px] font-mono uppercase tracking-wider text-ink-muted mb-8 rounded-sm">
             Open Source · MIT · CC0 Data
           </span>
-          <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight text-white leading-tight mb-4">
+          <h1 className="font-serif text-5xl md:text-6xl lg:text-7xl tracking-tight text-ink leading-[1.05] mb-6">
             Know the process<br />before you apply
           </h1>
-          <p className="text-lg text-[#94A3B8] max-w-xl mb-8 leading-relaxed">
+          <p className="text-lg text-ink-soft max-w-xl mb-9 leading-relaxed">
             Crowdsourced, anonymized rejection experiences from real candidates.
             No names. No spin. Just signal.
           </p>
           <div className="flex items-center gap-3 flex-wrap">
             <Link
               href="/submit"
-              className="inline-flex items-center gap-2 bg-[#38BDF8] text-[#0F172A] px-5 py-2.5 text-sm font-semibold rounded hover:bg-[#7DD3FC] transition-colors"
+              className="inline-flex items-center gap-2 bg-accent text-paper-sheet px-6 py-3 text-sm font-medium rounded-sm hover:bg-accent-hover transition-colors"
             >
               Share Your Experience
               <ArrowRight className="h-4 w-4" />
             </Link>
             <Link
               href="/browse"
-              className="inline-flex items-center gap-2 border border-[#334155] text-[#94A3B8] px-5 py-2.5 text-sm font-medium rounded hover:border-[#38BDF8]/50 hover:text-white transition-colors"
+              className="inline-flex items-center gap-2 border border-rule-strong bg-paper-sheet text-ink-soft px-6 py-3 text-sm font-medium rounded-sm hover:border-ink-faint hover:text-ink transition-colors"
             >
               Browse Data
             </Link>
@@ -126,36 +126,48 @@ export default async function HomePage() {
       <CompanySearch />
 
       {/* How It Works */}
-      <section className="max-w-6xl mx-auto px-4 py-16 w-full">
-        <h2 className="text-xl font-semibold text-white mb-8">How it works</h2>
-        <div className="grid md:grid-cols-3 gap-4">
+      <section className="max-w-6xl mx-auto px-4 py-20 w-full">
+        <h2 className="font-serif text-2xl text-ink mb-8">How it works</h2>
+        <div className="grid md:grid-cols-3 gap-5">
           {steps.map((step) => (
-            <div key={step.num} className="border border-[#334155] bg-[#1E293B] rounded p-5">
-              <div className="flex items-center gap-3 mb-3">
-                <span className="font-mono text-sm text-[#38BDF8] font-semibold">{step.num}</span>
-                <step.icon className="h-4 w-4 text-[#64748B]" />
+            <div
+              key={step.num}
+              className="border border-rule bg-paper-sheet rounded-sm p-6 shadow-sheet"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <span className="font-mono text-xs tracking-wider text-accent">
+                  {step.num}
+                </span>
+                <step.icon className="h-4 w-4 text-ink-faint" />
               </div>
-              <h3 className="text-sm font-semibold text-white mb-1">{step.title}</h3>
-              <p className="text-sm text-[#64748B] leading-relaxed">{step.description}</p>
+              <h3 className="font-serif text-lg text-ink mb-1.5">{step.title}</h3>
+              <p className="text-sm text-ink-muted leading-relaxed">
+                {step.description}
+              </p>
             </div>
           ))}
         </div>
       </section>
 
       {/* Recent Submissions */}
-      <section className="max-w-6xl mx-auto px-4 pb-16 w-full">
+      <section className="max-w-6xl mx-auto px-4 pb-20 w-full">
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-semibold text-white">Recent submissions</h2>
-          <Link href="/browse" className="text-sm text-[#38BDF8] hover:underline">
+          <h2 className="font-serif text-2xl text-ink">Recent submissions</h2>
+          <Link
+            href="/browse"
+            className="text-sm text-accent hover:text-accent-hover hover:underline"
+          >
             View all →
           </Link>
         </div>
         {recentSubmissions.length === 0 ? (
-          <div className="border border-[#334155] rounded p-12 text-center">
-            <p className="text-[#64748B]">No data yet — be the first to contribute</p>
+          <div className="border border-dashed border-rule-strong bg-paper-sheet rounded-sm p-16 text-center">
+            <p className="text-sm text-ink-muted">
+              No data yet — be the first to contribute
+            </p>
           </div>
         ) : (
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
             {recentSubmissions.map((sub) => (
               <SubmissionCard key={sub.id} submission={sub} />
             ))}

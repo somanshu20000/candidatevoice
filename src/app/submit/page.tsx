@@ -34,12 +34,17 @@ interface FormState {
 const STEP_LABELS = ["Company & Role", "Stage & Outcome", "Timeline", "Details"];
 
 const SELECT_CLS =
-  "w-full bg-[#0F172A] border border-[#334155] text-[#94A3B8] text-sm rounded px-3 py-2.5 focus:outline-none focus:border-[#38BDF8] transition-colors";
+  "w-full bg-paper border border-rule text-ink-soft text-sm rounded-sm px-3 py-2.5 shadow-press focus:outline-none focus:border-accent transition-colors";
+
+const INPUT_CLS =
+  "w-full bg-paper border border-rule text-ink text-sm rounded-sm px-3 py-2.5 shadow-press focus:outline-none focus:border-accent transition-colors placeholder:text-ink-faint";
+
+const LABEL_CLS = "block text-sm font-medium text-ink mb-1.5";
 
 const WARNING = (
-  <div className="flex items-start gap-3 border border-[#F87171]/30 bg-[#F87171]/10 rounded p-3 mb-6">
-    <AlertTriangle className="h-4 w-4 text-[#F87171] mt-0.5 shrink-0" />
-    <p className="text-xs text-[#F87171] leading-relaxed">
+  <div className="flex items-start gap-3 border border-[#E6C4BF] bg-[#F9EEEC] rounded-sm p-3.5 mb-8">
+    <AlertTriangle className="h-4 w-4 text-bad mt-0.5 shrink-0" />
+    <p className="text-xs text-bad leading-relaxed">
       <span className="font-semibold">Do not include names.</span>{" "}
       Submit honest, factual data only.
     </p>
@@ -122,11 +127,11 @@ export default function SubmitPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0F172A] text-white flex flex-col">
+    <div className="min-h-screen flex flex-col">
       <Navbar />
-      <main className="max-w-2xl mx-auto px-4 py-12 w-full flex-1">
-        <h1 className="text-2xl font-bold text-white mb-2">Share Your Experience</h1>
-        <p className="text-sm text-[#64748B] mb-8">Anonymous. No personal data stored.</p>
+      <main className="max-w-2xl mx-auto px-4 py-14 w-full flex-1">
+        <h1 className="font-serif text-3xl text-ink mb-2">Share Your Experience</h1>
+        <p className="text-sm text-ink-muted mb-10">Anonymous. No personal data stored.</p>
 
         {/* Progress bar */}
         <div className="flex items-center gap-0 mb-10">
@@ -137,18 +142,18 @@ export default function SubmitPage() {
             return (
               <div key={label} className="flex items-center flex-1">
                 <div className="flex flex-col items-center">
-                  <div className={`h-7 w-7 rounded-full border flex items-center justify-center text-xs font-mono font-semibold transition-colors
-                    ${done ? "bg-[#38BDF8] border-[#38BDF8] text-[#0F172A]" :
-                      active ? "border-[#38BDF8] text-[#38BDF8]" :
-                               "border-[#334155] text-[#475569]"}`}>
+                  <div className={`h-7 w-7 rounded-full border flex items-center justify-center text-xs font-mono font-medium transition-colors
+                    ${done ? "bg-accent border-accent text-paper-sheet" :
+                      active ? "border-accent text-accent bg-paper-sheet" :
+                               "border-rule-strong text-ink-faint bg-paper-sheet"}`}>
                     {done ? "✓" : num}
                   </div>
-                  <span className={`text-[10px] font-mono mt-1 text-center ${active ? "text-[#38BDF8]" : "text-[#475569]"}`}>
+                  <span className={`text-[10px] font-mono mt-1.5 text-center ${active ? "text-accent" : "text-ink-faint"}`}>
                     {label}
                   </span>
                 </div>
                 {i < STEP_LABELS.length - 1 && (
-                  <div className={`flex-1 h-px mx-1 mb-4 ${done ? "bg-[#38BDF8]" : "bg-[#334155]"}`} />
+                  <div className={`flex-1 h-px mx-1 mb-4 ${done ? "bg-accent" : "bg-rule-strong"}`} />
                 )}
               </div>
             );
@@ -157,34 +162,36 @@ export default function SubmitPage() {
 
         {WARNING}
 
-        <div className="border border-[#334155] bg-[#1E293B] rounded p-6 mb-6">
+        <div className="border border-rule bg-paper-sheet rounded-sm p-7 mb-6 shadow-sheet">
 
           {/* Step 1 */}
           {step === 1 && (
-            <div className="space-y-4">
+            <div className="space-y-5">
               <div>
-                <label className="block text-sm font-medium text-white mb-1">Company name</label>
+                <label htmlFor="company" className={LABEL_CLS}>Company name</label>
                 <input
+                  id="company"
                   type="text"
                   value={form.company}
                   onChange={(e) => set("company", e.target.value)}
                   placeholder="e.g. Razorpay"
-                  className="w-full bg-[#0F172A] border border-[#334155] text-[#94A3B8] text-sm rounded px-3 py-2.5 focus:outline-none focus:border-[#38BDF8] transition-colors placeholder:text-[#475569]"
+                  className={INPUT_CLS}
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-white mb-1">Role applied for</label>
+                <label htmlFor="role" className={LABEL_CLS}>Role applied for</label>
                 <input
+                  id="role"
                   type="text"
                   value={form.role}
                   onChange={(e) => set("role", e.target.value)}
                   placeholder="e.g. Senior Backend Engineer"
-                  className="w-full bg-[#0F172A] border border-[#334155] text-[#94A3B8] text-sm rounded px-3 py-2.5 focus:outline-none focus:border-[#38BDF8] transition-colors placeholder:text-[#475569]"
+                  className={INPUT_CLS}
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-white mb-1">Years of experience</label>
-                <select value={form.experience_bucket} onChange={(e) => set("experience_bucket", e.target.value as ExperienceBucket)} className={SELECT_CLS}>
+                <label htmlFor="experience" className={LABEL_CLS}>Years of experience</label>
+                <select id="experience" value={form.experience_bucket} onChange={(e) => set("experience_bucket", e.target.value as ExperienceBucket)} className={SELECT_CLS}>
                   <option value="">Select…</option>
                   <option value="0-1">0–1 years</option>
                   <option value="1-3">1–3 years</option>
@@ -198,10 +205,10 @@ export default function SubmitPage() {
 
           {/* Step 2 */}
           {step === 2 && (
-            <div className="space-y-4">
+            <div className="space-y-5">
               <div>
-                <label className="block text-sm font-medium text-white mb-1">Stage reached</label>
-                <select value={form.stage} onChange={(e) => set("stage", e.target.value as Stage)} className={SELECT_CLS}>
+                <label htmlFor="stage" className={LABEL_CLS}>Stage reached</label>
+                <select id="stage" value={form.stage} onChange={(e) => set("stage", e.target.value as Stage)} className={SELECT_CLS}>
                   <option value="">Select…</option>
                   <option value="applied">Applied</option>
                   <option value="screening">Screening</option>
@@ -211,8 +218,8 @@ export default function SubmitPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-white mb-1">Outcome</label>
-                <select value={form.outcome} onChange={(e) => set("outcome", e.target.value as Outcome)} className={SELECT_CLS}>
+                <label htmlFor="outcome" className={LABEL_CLS}>Outcome</label>
+                <select id="outcome" value={form.outcome} onChange={(e) => set("outcome", e.target.value as Outcome)} className={SELECT_CLS}>
                   <option value="">Select…</option>
                   <option value="rejected">Rejected</option>
                   <option value="no_response">No Response</option>
@@ -225,10 +232,10 @@ export default function SubmitPage() {
 
           {/* Step 3 */}
           {step === 3 && (
-            <div className="space-y-4">
+            <div className="space-y-5">
               <div>
-                <label className="block text-sm font-medium text-white mb-1">Response time</label>
-                <select value={form.response_time_bucket} onChange={(e) => set("response_time_bucket", e.target.value as ResponseTimeBucket)} className={SELECT_CLS}>
+                <label htmlFor="response-time" className={LABEL_CLS}>Response time</label>
+                <select id="response-time" value={form.response_time_bucket} onChange={(e) => set("response_time_bucket", e.target.value as ResponseTimeBucket)} className={SELECT_CLS}>
                   <option value="">Select…</option>
                   <option value="0-3">0–3 days</option>
                   <option value="4-7">4–7 days</option>
@@ -237,8 +244,8 @@ export default function SubmitPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-white mb-1">Last interaction gap</label>
-                <select value={form.last_interaction_gap} onChange={(e) => set("last_interaction_gap", e.target.value as LastInteractionGap)} className={SELECT_CLS}>
+                <label htmlFor="last-gap" className={LABEL_CLS}>Last interaction gap</label>
+                <select id="last-gap" value={form.last_interaction_gap} onChange={(e) => set("last_interaction_gap", e.target.value as LastInteractionGap)} className={SELECT_CLS}>
                   <option value="">Select…</option>
                   <option value="0-7">0–7 days</option>
                   <option value="8-14">8–14 days</option>
@@ -247,8 +254,8 @@ export default function SubmitPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-white mb-1">Call duration</label>
-                <select value={form.call_duration} onChange={(e) => set("call_duration", e.target.value as CallDuration)} className={SELECT_CLS}>
+                <label htmlFor="call-duration" className={LABEL_CLS}>Call duration</label>
+                <select id="call-duration" value={form.call_duration} onChange={(e) => set("call_duration", e.target.value as CallDuration)} className={SELECT_CLS}>
                   <option value="">Select…</option>
                   <option value="<2">&lt;2 min</option>
                   <option value="2-5">2–5 min</option>
@@ -258,8 +265,8 @@ export default function SubmitPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-white mb-1">First interaction outcome</label>
-                <select value={form.first_interaction_outcome} onChange={(e) => set("first_interaction_outcome", e.target.value as FirstInteractionOutcome)} className={SELECT_CLS}>
+                <label htmlFor="first-outcome" className={LABEL_CLS}>First interaction outcome</label>
+                <select id="first-outcome" value={form.first_interaction_outcome} onChange={(e) => set("first_interaction_outcome", e.target.value as FirstInteractionOutcome)} className={SELECT_CLS}>
                   <option value="">Select…</option>
                   <option value="continued">Continued</option>
                   <option value="rejected_immediately">Rejected immediately</option>
@@ -271,10 +278,10 @@ export default function SubmitPage() {
 
           {/* Step 4 */}
           {step === 4 && (
-            <div className="space-y-4">
+            <div className="space-y-5">
               <div>
-                <label className="block text-sm font-medium text-white mb-1">Reason given</label>
-                <select value={form.reason} onChange={(e) => set("reason", e.target.value)} className={SELECT_CLS}>
+                <label htmlFor="reason" className={LABEL_CLS}>Reason given</label>
+                <select id="reason" value={form.reason} onChange={(e) => set("reason", e.target.value)} className={SELECT_CLS}>
                   <option value="">Select…</option>
                   <option value="experience_mismatch">Experience mismatch</option>
                   <option value="skill_mismatch">Skill mismatch</option>
@@ -284,8 +291,8 @@ export default function SubmitPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-white mb-1">Payment requested?</label>
-                <select value={form.payment_flag} onChange={(e) => set("payment_flag", e.target.value as PaymentFlagOption)} className={SELECT_CLS}>
+                <label htmlFor="payment" className={LABEL_CLS}>Payment requested?</label>
+                <select id="payment" value={form.payment_flag} onChange={(e) => set("payment_flag", e.target.value as PaymentFlagOption)} className={SELECT_CLS}>
                   <option value="">Select…</option>
                   <option value="no">No</option>
                   <option value="before_interview">Before interview</option>
@@ -294,7 +301,7 @@ export default function SubmitPage() {
                 </select>
               </div>
               {error && (
-                <p className="text-sm text-[#F87171] border border-[#F87171]/30 bg-[#F87171]/10 rounded px-3 py-2">
+                <p className="text-sm text-bad border border-[#E6C4BF] bg-[#F9EEEC] rounded-sm px-3 py-2.5">
                   {error}
                 </p>
               )}
@@ -307,7 +314,7 @@ export default function SubmitPage() {
           {step > 1 ? (
             <button
               onClick={() => setStep((s) => s - 1)}
-              className="text-sm border border-[#334155] text-[#94A3B8] px-4 py-2 rounded hover:border-[#475569] transition-colors"
+              className="text-sm border border-rule-strong bg-paper-sheet text-ink-soft px-5 py-2.5 rounded-sm hover:border-ink-faint hover:text-ink transition-colors"
             >
               ← Back
             </button>
@@ -317,7 +324,7 @@ export default function SubmitPage() {
             <button
               onClick={() => setStep((s) => s + 1)}
               disabled={!canAdvance()}
-              className="text-sm bg-[#38BDF8] text-[#0F172A] font-semibold px-5 py-2 rounded hover:bg-[#7DD3FC] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="text-sm bg-accent text-paper-sheet font-medium px-6 py-2.5 rounded-sm hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               Continue →
             </button>
@@ -325,7 +332,7 @@ export default function SubmitPage() {
             <button
               onClick={handleSubmit}
               disabled={!canAdvance() || submitting}
-              className="text-sm bg-[#38BDF8] text-[#0F172A] font-semibold px-5 py-2 rounded hover:bg-[#7DD3FC] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="text-sm bg-accent text-paper-sheet font-medium px-6 py-2.5 rounded-sm hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               {submitting ? "Submitting…" : "Submit Anonymously →"}
             </button>

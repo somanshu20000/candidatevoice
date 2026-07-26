@@ -30,6 +30,9 @@ const STAGES: { value: HiringStage | "all"; label: string }[] = [
 
 const PAGE_SIZE = 9;
 
+const SELECT_CLS =
+  "bg-paper border border-rule text-ink-soft text-sm rounded-sm px-3 py-2 shadow-press focus:outline-none focus:border-accent transition-colors";
+
 export default function BrowsePage() {
   const [company, setCompany] = useState("All Companies");
   const [stage, setStage] = useState<HiringStage | "all">("all");
@@ -116,24 +119,25 @@ export default function BrowsePage() {
   }, [company, stage, page]);
 
   return (
-    <div className="min-h-screen bg-[#0F172A] text-white flex flex-col">
+    <div className="min-h-screen flex flex-col">
       <Navbar />
 
-      <main className="max-w-6xl mx-auto px-4 py-12 w-full flex-1">
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold text-white mb-1">Browse Submissions</h1>
-          <p className="text-sm text-[#64748B]">{totalCount} submissions found</p>
+      <main className="max-w-6xl mx-auto px-4 py-14 w-full flex-1">
+        <div className="mb-8 pb-6 border-b border-rule">
+          <h1 className="font-serif text-3xl text-ink mb-1">Browse Submissions</h1>
+          <p className="text-sm text-ink-muted tnum">{totalCount} submissions found</p>
         </div>
 
         {/* Filter bar */}
-        <div className="flex flex-wrap gap-3 mb-8 p-4 border border-[#334155] bg-[#1E293B] rounded">
+        <div className="flex flex-wrap gap-3 mb-8 p-4 border border-rule bg-paper-sheet rounded-sm shadow-sheet">
           <select
+            aria-label="Filter by company"
             value={company}
             onChange={(e) => {
               setCompany(e.target.value);
               setPage(1);
             }}
-            className="bg-[#0F172A] border border-[#334155] text-[#94A3B8] text-sm rounded px-3 py-1.5 focus:outline-none focus:border-[#38BDF8]"
+            className={SELECT_CLS}
           >
             {companyOptions.map((c) => (
               <option key={c}>{c}</option>
@@ -141,12 +145,13 @@ export default function BrowsePage() {
           </select>
 
           <select
+            aria-label="Filter by stage"
             value={stage}
             onChange={(e) => {
               setStage(e.target.value as HiringStage | "all");
               setPage(1);
             }}
-            className="bg-[#0F172A] border border-[#334155] text-[#94A3B8] text-sm rounded px-3 py-1.5 focus:outline-none focus:border-[#38BDF8]"
+            className={SELECT_CLS}
           >
             {STAGES.map((s) => (
               <option key={s.value} value={s.value}>
@@ -161,7 +166,7 @@ export default function BrowsePage() {
               setStage("all");
               setPage(1);
             }}
-            className="text-xs text-[#64748B] hover:text-[#38BDF8] transition-colors ml-auto"
+            className="text-xs text-ink-muted hover:text-accent transition-colors ml-auto"
           >
             Clear filters
           </button>
@@ -169,11 +174,11 @@ export default function BrowsePage() {
 
         {/* Grid */}
         {rows.length === 0 ? (
-          <div className="border border-[#334155] rounded p-12 text-center">
-            <p className="text-[#64748B]">No submissions match your filters.</p>
+          <div className="border border-dashed border-rule-strong bg-paper-sheet rounded-sm p-16 text-center">
+            <p className="text-sm text-ink-muted">No submissions match your filters.</p>
           </div>
         ) : (
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5 mb-10">
             {rows.map((sub) => (
               <SubmissionCard key={sub.id} submission={sub} />
             ))}
@@ -186,17 +191,17 @@ export default function BrowsePage() {
             <button
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page === 1}
-              className="text-xs font-mono border border-[#334155] px-3 py-1.5 rounded text-[#94A3B8] hover:border-[#38BDF8] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              className="text-xs font-mono border border-rule bg-paper-sheet px-3 py-2 rounded-sm text-ink-soft hover:border-rule-strong disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               ← Prev
             </button>
-            <span className="text-xs font-mono text-[#64748B] px-3">
+            <span className="text-xs font-mono text-ink-muted px-3 tnum">
               Page {page} of {totalPages}
             </span>
             <button
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               disabled={page === totalPages}
-              className="text-xs font-mono border border-[#334155] px-3 py-1.5 rounded text-[#94A3B8] hover:border-[#38BDF8] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              className="text-xs font-mono border border-rule bg-paper-sheet px-3 py-2 rounded-sm text-ink-soft hover:border-rule-strong disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               Next →
             </button>

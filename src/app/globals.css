@@ -2,22 +2,79 @@
 @tailwind components;
 @tailwind utilities;
 
-/* CSS variables for theming and brand colors */
 :root {
-  --font-sans:
-    ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Inter",
-    sans-serif;
-  --bg: #0f172a;
-  --text: #f8fafc;
-  --muted: #64748b;
-  --brand: #38bdf8;
+  --paper: #f4f1ea;
+  --ink: #1f1d18;
+  --accent: #27405e;
 }
 
 * {
   box-sizing: border-box;
 }
 
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
 body {
-  background-color: #0f172a;
-  color: #f8fafc;
+  background-color: var(--paper);
+  color: var(--ink);
+  /* Warm vignette: light falling on the top of a sheet, with the faintest
+     shadow gathering at the bottom edge. Fixed so it doesn't slide on scroll. */
+  background-image:
+    radial-gradient(
+      120% 80% at 50% 0%,
+      rgba(255, 255, 255, 0.8) 0%,
+      rgba(255, 255, 255, 0) 62%
+    ),
+    radial-gradient(
+      100% 100% at 50% 100%,
+      rgba(158, 145, 116, 0.1) 0%,
+      rgba(158, 145, 116, 0) 55%
+    );
+  background-attachment: fixed;
+}
+
+/* Printed-paper grain over the entire surface, including the sticky header, so
+   the page reads as one continuous sheet instead of stacked CSS panels.
+   Inlined as a data URI because next.config.js sets a strict CSP with no
+   external asset origins. Non-interactive and very low opacity. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  opacity: 0.05;
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='200'%20height='200'%3E%3Cfilter%20id='p'%3E%3CfeTurbulence%20type='fractalNoise'%20baseFrequency='0.8'%20numOctaves='4'%20stitchTiles='stitch'/%3E%3C/filter%3E%3Crect%20width='200'%20height='200'%20filter='url(%23p)'/%3E%3C/svg%3E");
+}
+
+::selection {
+  background: #dde3ec;
+  color: var(--ink);
+}
+
+/* Visible keyboard focus everywhere. The previous theme relied on
+   focus:border-* only, which left keyboard users without an indicator on
+   buttons and links. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 1px;
+}
+
+/* Numerals in tabular data should align in columns. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Two-line truncation. Tailwind only moved line-clamp into core in v3.3 and
+   this project pins 3.0.0 with no plugins, so the `line-clamp-2` class the
+   cards previously used compiled to nothing and the text never truncated. */
+.clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
