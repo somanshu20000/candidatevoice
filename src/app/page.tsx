@@ -5,6 +5,7 @@ import Footer from "@/components/Footer";
 import SubmissionCard from "@/components/SubmissionCard";
 import CompanySearch from "@/components/CompanySearch";
 import { createClient } from "@/lib/supabase/server";
+import { reasonLabel, reasonSummary } from "@/utils/labels";
 import type { SubmissionCardData } from "@/types/index";
 
 const steps = [
@@ -61,13 +62,15 @@ export default async function HomePage() {
 
   const recentSubmissions: SubmissionCardData[] = rows
     .map((row) => {
+      // Maps the reported stage to its card label. `final` means the candidate
+      // reached the final round — it asserts nothing about the outcome.
       const mappedStage =
         row.stage === "applied"
           ? "applied"
           : row.stage === "screening"
             ? "screened"
             : row.stage === "final"
-              ? "offered"
+              ? "final"
               : "interviewed";
 
       return {
@@ -81,8 +84,8 @@ export default async function HomePage() {
         },
         role_title: row.role,
         rejection_stage: mappedStage,
-        rejection_reason: row.reason ?? "",
-        experience_text: row.reason ?? "No additional details provided.",
+        rejection_reason: reasonLabel(row.reason),
+        experience_text: reasonSummary(row.reason),
         created_at: row.created_at,
       };
     });

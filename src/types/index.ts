@@ -5,7 +5,14 @@ export type ResponseTimeBucket = "0-3" | "4-7" | "8-14" | "15+";
 export type LastInteractionGap = "0-7" | "8-14" | "15-30" | "30+";
 export type CallDuration = "<2" | "2-5" | "5-15" | "15+" | "na";
 export type FirstInteractionOutcome = "continued" | "rejected_immediately" | "na";
-export type CardRejectionStage = "applied" | "screened" | "interviewed" | "offered";
+/**
+ * The furthest stage a submission reached, as shown on a card.
+ *
+ * These describe a STAGE, never an outcome. `final` means "reached the final
+ * round" and says nothing about whether the candidate was rejected, ghosted,
+ * offered, or is still waiting — that is `outcome`, a separate field.
+ */
+export type CardRejectionStage = "applied" | "screened" | "interviewed" | "final";
 
 export interface SubmissionCardData {
   id: string;

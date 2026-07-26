@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
+import { outcomeLabel, reasonLabel, stageLabel } from "@/utils/labels";
 
 type PendingSubmission = {
   id: string;
@@ -150,15 +151,15 @@ export default function AdminPage() {
                 </div>
                 <div className="flex gap-2">
                   <dt className="text-ink-muted shrink-0">Stage</dt>
-                  <dd className="text-ink font-mono text-[13px]">{item.stage}</dd>
+                  <dd className="text-ink">{stageLabel(item.stage)}</dd>
                 </div>
                 <div className="flex gap-2">
                   <dt className="text-ink-muted shrink-0">Outcome</dt>
-                  <dd className="text-ink font-mono text-[13px]">{item.outcome}</dd>
+                  <dd className="text-ink">{outcomeLabel(item.outcome)}</dd>
                 </div>
                 <div className="flex gap-2">
                   <dt className="text-ink-muted shrink-0">Reason</dt>
-                  <dd className="text-ink font-mono text-[13px]">{item.reason}</dd>
+                  <dd className="text-ink">{reasonLabel(item.reason)}</dd>
                 </div>
               </dl>
 

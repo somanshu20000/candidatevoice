@@ -6,9 +6,10 @@ import Footer from "@/components/Footer";
 import SubmissionCard from "@/components/SubmissionCard";
 import { supabase } from "@/lib/supabase/browser";
 import { normalizeCompanySlug } from "@/lib/company-slug";
+import { reasonLabel, reasonSummary } from "@/utils/labels";
 import type { HiringStage, SubmissionCardData } from "@/types/index";
 
-type CardStage = "applied" | "screened" | "interviewed" | "offered";
+type CardStage = "applied" | "screened" | "interviewed" | "final";
 
 type BrowseRow = {
   id: string;
@@ -46,11 +47,13 @@ export default function BrowsePage() {
     [totalCount]
   );
 
+  // Maps the reported stage to its card label. `final` means the candidate
+  // reached the final round — it asserts nothing about the outcome.
   function mapStage(stageValue: HiringStage): CardStage {
     if (stageValue === "applied") return "applied";
     if (stageValue === "screening") return "screened";
     if (stageValue === "technical" || stageValue === "hr") return "interviewed";
-    return "offered";
+    return "final";
   }
 
   useEffect(() => {
@@ -107,8 +110,8 @@ export default function BrowsePage() {
         },
         role_title: row.role,
         rejection_stage: mapStage(row.stage),
-        rejection_reason: row.reason ?? "",
-        experience_text: row.reason ?? "No additional details provided.",
+        rejection_reason: reasonLabel(row.reason),
+        experience_text: reasonSummary(row.reason),
         created_at: row.created_at,
       }));
 
