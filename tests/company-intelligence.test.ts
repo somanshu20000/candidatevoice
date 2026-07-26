@@ -18,37 +18,82 @@ import type { NormalizedCompany } from "../src/lib/company-intelligence/types";
 // assert the migration still defines the function the way this table assumes.
 // ---------------------------------------------------------------------------
 describe("canonicalizeSlug ↔ SQL parity", () => {
-  const cases: [string, string | null][] = [
-    ["Google", "google"],
-    ["Google Inc.", "google-inc"],
-    ["AT&T", "at-t"],
-    ["Ernst & Young", "ernst-young"],
-    ["Byju's", "byju-s"],
-    ["Paytm (One97)", "paytm-one97"],
-    ["Amazon.com", "amazon-com"],
-    ["Yahoo!", "yahoo"],
-    ["Company - Name", "company-name"],
-    ["  spaced  out  ", "spaced-out"],
-    ["---leading-trailing---", "leading-trailing"],
-    ["!!!", null],
-    ["", null],
-    ["Société Générale", "societe-generale"],
-    ["Nestlé", "nestle"],
+  const MIGRATION = readFileSync(
+    join(process.cwd(), "supabase/migrations/0002_organizations.sql"),
+    "utf8"
+  );
+
+  // Extract the ACTUAL translate() map out of the migration, so this test is
+  // driven by the shipped SQL rather than by a hand-copied duplicate of it.
+  const translateCall =
+    /translate\(\s*lower\(coalesce\(p_slug, ''\)\),\s*'([^']*)',\s*'([^']*)'\s*\)/.exec(MIGRATION);
+
+  it("the migration defines canonicalize_slug with a translate() accent map", () => {
+    expect(translateCall).not.toBeNull();
+    expect(MIGRATION).toMatch(/'\[\^a-z0-9\]\+', '-', 'g'/);
+    expect(MIGRATION).toMatch(/'\(\^-\+\|-\+\$\)', '', 'g'/);
+  });
+
+  it("the translate() map is 1:1 — Postgres silently truncates when lengths differ", () => {
+    const [, from, to] = translateCall!;
+    expect(from.length).toBeGreaterThan(0);
+    expect(to.length).toBe(from.length);
+    expect(new Set(from).size).toBe(from.length); // no duplicate source chars
+  });
+
+  /**
+   * Faithful emulation of the SQL function, built from the map parsed above:
+   *   translate(lower(x), FROM, TO) → [^a-z0-9]+ → '-' → trim '-' → nullif ''
+   * Comparing TS against THIS (rather than against a fixed expectations table)
+   * is what makes the test a real parity guard: change either implementation
+   * and it fails.
+   */
+  function sqlCanonicalizeSlug(input: string): string | null {
+    const [, from, to] = translateCall!;
+    const map = new Map<string, string>();
+    for (let i = 0; i < from.length; i++) map.set(from[i], to[i]);
+
+    const translated = [...input.toLowerCase()]
+      .map((ch) => map.get(ch) ?? ch)
+      .join("");
+    const slug = translated.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    return slug.length > 0 ? slug : null;
+  }
+
+  // Corpus deliberately spans the classes that previously diverged: accented
+  // Latin, Vietnamese (Latin Extended Additional), non-decomposing letters
+  // (ø/æ/ß), ligatures, CJK, and plain ASCII controls.
+  const corpus = [
+    "Google", "Google Inc.", "AT&T", "Ernst & Young", "Byju's",
+    "Paytm (One97)", "Amazon.com", "Yahoo!", "Company - Name",
+    "  spaced  out  ", "---leading-trailing---", "!!!", "",
+    "Nestlé", "São Paulo", "Société Générale", "Zürich Insurance",
+    "Häagen-Dazs", "Loréal", "Naïve", "Peña", "Škoda", "Łódź",
+    "Việt Nam Software", "Đại Việt", "Ångström",
+    "Ørsted", "Æther", "Straße", "Œuvre", "ﬁnance", "北京字节",
   ];
 
-  it.each(cases)("canonicalizeSlug(%j) === %j", (input, expected) => {
+  it.each(corpus)("TS and SQL agree on %j", (input) => {
+    expect(canonicalizeSlug(input)).toBe(sqlCanonicalizeSlug(input));
+  });
+
+  // Pin the human-facing outcomes too, so a future change that keeps the two
+  // sides equal but makes both wrong (e.g. dropping the fold entirely) fails.
+  it.each([
+    ["Nestlé", "nestle"],
+    ["São Paulo", "sao-paulo"],
+    ["Société Générale", "societe-generale"],
+    ["Google Inc.", "google-inc"],
+    ["!!!", null],
+  ] as [string, string | null][])("canonicalizeSlug(%j) === %j", (input, expected) => {
     expect(canonicalizeSlug(input)).toBe(expected);
   });
 
-  it("the SQL migration still defines canonicalize_slug with the semantics this table assumes", () => {
-    const sql = readFileSync(join(process.cwd(), "supabase/migrations/0002_organizations.sql"), "utf8");
-    // The function folds non-alphanumerics to '-' and trims leading/trailing '-'.
-    expect(sql).toMatch(/regexp_replace\(lower\(coalesce\(p_slug, ''\)\), '\[\^a-z0-9\]\+', '-', 'g'\)/);
-    expect(sql).toMatch(/'\(\^-\+\|-\+\$\)', '', 'g'/);
-    // And the alias column must NOT carry the strict slug-format CHECK (the bug
-    // the review caught) — only a length bound.
-    expect(sql).not.toMatch(/organization_aliases_slug_format/);
-    expect(sql).toMatch(/organization_aliases_slug_length/);
+  it("alias_slug carries only a length bound, never the strict slug format", () => {
+    // Regression guard: alias_slug is joined against the raw, punctuation-bearing
+    // hiring_submissions.company, so its domain must be a superset of that column.
+    expect(MIGRATION).not.toMatch(/organization_aliases_slug_format/);
+    expect(MIGRATION).toMatch(/organization_aliases_slug_length/);
   });
 });
 

@@ -37,6 +37,30 @@
 --    So canonicalization happens HERE instead — reducing any observed slug to
 --    the restricted charset used for canonical organization slugs, without
 --    touching the evidence that produced it.
+--    ACCENT FOLDING AND WHY IT IS A LITERAL MAP.
+--    Without folding, `[^a-z0-9]` treats an accented letter as a separator, so
+--    'Nestlé' becomes 'nestl' and 'São Paulo' becomes 's-o-paulo'. The
+--    TypeScript importer folds accents via Unicode NFD, so it produced 'nestle'
+--    and 'sao-paulo' instead — the two engines disagreed and split one employer
+--    across two organizations, defeating the dedup this table exists for.
+--
+--    The map below is GENERATED from Unicode NFD over Latin-1 Supplement,
+--    Latin Extended-A/B and Latin Extended Additional (which covers Vietnamese),
+--    keeping only characters whose decomposition is exactly one ASCII letter.
+--    That restriction is what makes the two implementations provably agree:
+--      * a character in the map  -> both sides yield the same ASCII letter
+--      * a character not in it   -> both sides leave it, and the [^a-z0-9]
+--                                   fold turns it into a separator
+--    So 'ø', 'æ', 'ß' and CJK behave identically on both sides without needing
+--    to appear here at all.
+--
+--    translate() is used rather than the unaccent extension deliberately:
+--    unaccent is not truly IMMUTABLE (it depends on a mutable dictionary) and
+--    would add a Supabase extension + search_path dependency. translate() is
+--    built in, immutable, and deterministic.
+--
+--    Mirrored by canonicalizeSlug() in src/lib/company-intelligence/normalize.ts.
+--    tests/company-intelligence.test.ts asserts both against the same corpus.
 create or replace function canonicalize_slug(p_slug text)
 returns text
 language sql
@@ -44,7 +68,14 @@ immutable
 as $$
   select nullif(
     regexp_replace(
-      regexp_replace(lower(coalesce(p_slug, '')), '[^a-z0-9]+', '-', 'g'),
+      regexp_replace(
+        translate(
+          lower(coalesce(p_slug, '')),
+          'àáâãäåçèéêëìíîïñòóôõöùúûüýÿāăąćĉċčďēĕėęěĝğġģĥĩīĭįĵķĺļľńņňōŏőŕŗřśŝşšţťũūŭůűųŵŷźżžơưǎǐǒǔǖǘǚǜǟǡǧǩǫǭǰǵǹǻȁȃȅȇȉȋȍȏȑȓȕȗșțȟȧȩȫȭȯȱȳḁḃḅḇḉḋḍḏḑḓḕḗḙḛḝḟḡḣḥḧḩḫḭḯḱḳḵḷḹḻḽḿṁṃṅṇṉṋṍṏṑṓṕṗṙṛṝṟṡṣṥṧṩṫṭṯṱṳṵṷṹṻṽṿẁẃẅẇẉẋẍẏẑẓẕẖẗẘẙạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ',
+          'aaaaaaceeeeiiiinooooouuuuyyaaaccccdeeeeegggghiiiijklllnnnooorrrssssttuuuuuuwyzzzouaiouuuuuaagkoojgnaaaeeiioorruusthaeooooyabbbcdddddeeeeefghhhhhiikkkllllmmmnnnnoooopprrrrsssssttttuuuuuvvwwwwwxxyzzzhtwyaaaaaaaaaaaaeeeeeeeeiioooooooooooouuuuuuuyyyy'
+        ),
+        '[^a-z0-9]+', '-', 'g'
+      ),
       '(^-+|-+$)', '', 'g'
     ),
     ''

@@ -23,20 +23,29 @@ import {
 } from "./types";
 
 /**
- * Canonical organization slug. MUST match the SQL `canonicalize_slug()` in
- * supabase/migrations/0002_organizations.sql exactly, or a record will resolve
- * to a different organization in TypeScript than it does in Postgres.
+ * Canonical organization slug. MUST agree with the SQL `canonicalize_slug()` in
+ * supabase/migrations/0002_organizations.sql for EVERY input, or a record
+ * resolves to a different organization in TypeScript than it does in Postgres —
+ * splitting one employer across two organizations.
  *
- * SQL: lower → replace runs of non-[a-z0-9] with '-' → strip leading/trailing
- * '-' → null if empty. This is stricter than normalizeCompanySlug() (which only
- * lowercases and hyphenates whitespace); it additionally folds punctuation.
- * Diacritics are stripped via Unicode decomposition so "Nestlé" → "nestle"
- * rather than being dropped to "nestl".
+ * Both sides: fold accents → lower → replace runs of non-[a-z0-9] with '-' →
+ * strip leading/trailing '-' → null if empty. Stricter than
+ * normalizeCompanySlug() (which only lowercases and hyphenates whitespace); this
+ * additionally folds punctuation and accents, so "Nestlé" → "nestle".
+ *
+ * WHY NFD AND NOT NFKD. NFD is canonical decomposition only. NFKD additionally
+ * expands compatibility forms — "ﬁ" → "fi", "½" → "1⁄2" — which are one-to-many
+ * and therefore inexpressible by SQL translate(). Using NFD keeps the fold
+ * strictly one-to-one so the SQL literal map can mirror it exactly. A character
+ * outside the map (ø, æ, ß, CJK) is left alone by both sides and then collapsed
+ * to a separator by the same [^a-z0-9] rule, so they still agree.
  */
 export function canonicalizeSlug(input: string): string | null {
   const folded = input
-    .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, ""); // strip combining diacritical marks
+    .normalize("NFD")
+    // Strip combining marks: diacriticals, extensions, supplement, and
+    // combining marks for symbols. Mirrors the generated SQL translate() map.
+    .replace(/[̀-ͯ᪰-᫿᷀-᷿⃐-⃰]/g, "");
 
   const slug = folded
     .toLowerCase()
