@@ -35,12 +35,27 @@ export interface CompanyTermView {
   isPrimary: boolean;
 }
 
+/**
+ * Which source the resolved `description` on the profile came from. Exists so
+ * the UI can satisfy an attribution obligation instead of merely storing it:
+ * CC BY-SA (Wikipedia) requires a credit and a link back on redistribution,
+ * and this is how CompanyOverview knows to render one. See
+ * supabase/migrations/0006_metadata_fetch_sources.sql for the per-source
+ * license/attribution_required record this is read from.
+ */
+export interface DescriptionSourceView {
+  key: string;
+  label: string;
+  attributionRequired: boolean;
+}
+
 export interface CompanyProfileView {
   organizationId: string;
   slug: string;
   displayName: string;
   legalName: string | null;
   description: string | null;
+  descriptionSource: DescriptionSourceView | null;
   foundedYear: number | null;
   sizeBand: SizeBand | null;
   stockSymbol: string | null;
@@ -80,7 +95,11 @@ export async function loadCompanyProfile(
   const [profileRes, linksRes, locationsRes, taxonomyRes, regionsRes] = await Promise.all([
     supabase
       .from("company_profiles")
-      .select("legal_name, description, founded_year, size_band, stock_symbol, stock_exchange, confidence, observed_at, headquarters_city_id, cities:headquarters_city_id (name, region, country_code)")
+      .select(
+        "legal_name, description, founded_year, size_band, stock_symbol, stock_exchange, confidence, observed_at, headquarters_city_id, " +
+          "cities:headquarters_city_id (name, region, country_code), " +
+          "metadata_sources:metadata_source_id (key, display_name, attribution_required)"
+      )
       .eq("organization_id", orgId)
       .maybeSingle(),
     supabase
@@ -101,6 +120,12 @@ export async function loadCompanyProfile(
       .eq("organization_id", orgId),
   ]);
 
+  interface SourceJoin {
+    key: string;
+    display_name: string;
+    attribution_required: boolean;
+  }
+
   const profile = profileRes.data as
     | {
         legal_name: string | null;
@@ -112,10 +137,16 @@ export async function loadCompanyProfile(
         confidence: MetadataConfidence | null;
         observed_at: string | null;
         cities: CityJoin | CityJoin[] | null;
+        metadata_sources: SourceJoin | SourceJoin[] | null;
       }
     | null;
 
   const hqCity = profile ? (Array.isArray(profile.cities) ? profile.cities[0] : profile.cities) : null;
+  const descriptionSourceRow = profile
+    ? Array.isArray(profile.metadata_sources)
+      ? profile.metadata_sources[0]
+      : profile.metadata_sources
+    : null;
 
   const links: CompanyLinkView[] = ((linksRes.data ?? []) as Array<{ link_type: LinkType; url: string; confidence: MetadataConfidence; last_status: number | null }>).map((l) => ({
     linkType: l.link_type,
@@ -150,6 +181,14 @@ export async function loadCompanyProfile(
     displayName: org.display_name,
     legalName: profile?.legal_name ?? null,
     description: profile?.description ?? null,
+    descriptionSource:
+      profile?.description && descriptionSourceRow
+        ? {
+            key: descriptionSourceRow.key,
+            label: descriptionSourceRow.display_name,
+            attributionRequired: descriptionSourceRow.attribution_required,
+          }
+        : null,
     foundedYear: profile?.founded_year ?? null,
     sizeBand: profile?.size_band ?? null,
     stockSymbol: profile?.stock_symbol ?? null,

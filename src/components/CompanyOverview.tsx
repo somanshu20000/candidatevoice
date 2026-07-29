@@ -83,7 +83,30 @@ export default function CompanyOverview({ profile }: { profile: CompanyProfileVi
 
       <div className="p-6">
         {profile.description && (
-          <p className="text-sm text-ink-soft leading-relaxed mb-5">{profile.description}</p>
+          <div className="mb-5">
+            <p className="text-sm text-ink-soft leading-relaxed">{profile.description}</p>
+            {profile.descriptionSource?.attributionRequired && (
+              <p className="text-[11px] text-ink-faint mt-1.5">
+                Source:{" "}
+                {(() => {
+                  const wikipediaLink = profile.links.find((l) => l.linkType === "wikipedia");
+                  return wikipediaLink ? (
+                    <a
+                      href={wikipediaLink.url}
+                      target="_blank"
+                      rel="noopener noreferrer nofollow"
+                      className="underline hover:text-accent"
+                    >
+                      {profile.descriptionSource.label} ↗
+                    </a>
+                  ) : (
+                    profile.descriptionSource.label
+                  );
+                })()}
+                {" · CC BY-SA 4.0"}
+              </p>
+            )}
+          </div>
         )}
 
         <div className="grid sm:grid-cols-2 gap-x-8">

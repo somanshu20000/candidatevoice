@@ -128,10 +128,57 @@ Operationally, a moderator consolidates variants with `update-aliases.ts`
 (`--add`, `--merge`, `--suggest`) — data edits, never code changes, and never a
 rewrite of immutable evidence.
 
+## Built-in fetch adapters
+
+Four adapters beyond `seed_file` (`src/lib/company-intelligence/adapters/`),
+each a real `SourceAdapter` — narrow, independently testable, no shared state:
+
+| Adapter | Source | Licence | Trust tier | Contributes |
+|---|---|---|---|---|
+| `wikidata` | Wikidata SPARQL | CC0-1.0 — no attribution | 2 | website, GitHub handle, stock symbol, founding year, logo (`P154`, Commons `Special:FilePath`) |
+| `github_org` | GitHub REST API | GitHub API Terms | 4 | description (org bio), engineering blog |
+| `wikipedia` | REST summary endpoint | **CC BY-SA 4.0 — attribution required** | 3 | description (article extract), Wikipedia link |
+| `website_meta` | Company's own site | Not an open licence — their own facts | 1 (highest) | description (`og:description`) |
+
+Registered in `supabase/migrations/0006_metadata_fetch_sources.sql`, which is
+also the legal record of why each is permitted — see the migration's own
+comments for the reasoning per source.
+
+**Attribution.** Wikipedia content is CC BY-SA: redistributing it requires a
+credit and a link back. `read.ts` exposes which source the resolved
+`company_profiles.description` came from (`descriptionSource`), and
+`CompanyOverview.tsx` renders a "Source: Wikipedia ↗ · CC BY-SA 4.0" line
+under the description whenever that source is the winner — never silently.
+
+**Chaining and trust order.** `github_org` and `website_meta` need a GitHub
+handle / website URL only `wikidata` resolves, so
+`scripts/fetch-company-metadata.ts` runs `wikidata → github_org → wikipedia →
+website_meta` in that order and passes wikidata's discovered fields into the
+next two as explicit input — no adapter reaches into another. That order also
+happens to be lowest-trust-tier-first for the one field several sources
+overlap on (`description`), so the official website's own text wins over
+Wikipedia's, which wins over a GitHub org bio, whenever more than one is
+available. This only works because `store.upsertProfile` coalesces nulls
+against the existing row (added alongside these adapters) — otherwise a later
+adapter's absence of a field would silently erase an earlier adapter's value
+for it.
+
+Run: `npm run companies:fetch -- Data/companies/company-list.txt [--dry-run]`
+(one company name per line). Sequential requests with a short delay and an
+identifying `User-Agent` on every call, per Wikimedia's and GitHub's API
+etiquette; set `GITHUB_TOKEN` to raise GitHub's unauthenticated 60/hour cap.
+
+Every field stays attributable regardless of which value wins in
+`company_profiles` — `company_field_observations` keeps one row per
+`(organization, field, source)`, so "what did Wikidata say the founding year
+was" is always answerable even after `website_meta` overwrites the resolved
+value shown on the page.
+
 ## Seed format
 
 Canonical JSON (array of records) or CSV. Example files in
-`data/companies/example.{json,csv}`. Only `name` is required.
+`Data/companies/example.{json,csv}` (capital `Data/` — matches `.gitignore`;
+the directory is not committed). Only `name` is required.
 
 ```json
 {
@@ -163,6 +210,7 @@ CSV columns match the JSON keys; list fields use `;` or `|` separators;
 | `npm run companies:import -- <file> [--source <key>] [--confidence <level>] [--dry-run]` | Import (idempotent). |
 | `npm run companies:sync -- [--limit N] [--type website]` | Re-check stored links; record `last_status`. Flags broken links, never deletes. |
 | `npm run companies:aliases -- --list/--add/--merge/--suggest` | Manage alias → org mappings. |
+| `npm run companies:fetch -- <company-list.txt> [--dry-run]` | Wikidata → GitHub → Wikipedia → official website, in that order. See [Built-in fetch adapters](#built-in-fetch-adapters). |
 
 Import/sync/aliases require `NEXT_PUBLIC_SUPABASE_URL` and
 `SUPABASE_SERVICE_ROLE_KEY`. Run via `tsx` (a dev dependency).

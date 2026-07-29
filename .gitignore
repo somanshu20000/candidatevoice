@@ -22,6 +22,10 @@ build/
 # vercel
 .vercel
 
+# supabase CLI local state (which project is linked, cached component
+# versions) — machine-local, not portable, not secret but not useful to track
+supabase/.temp/
+
 # TypeScript
 *.tsbuildinfo
 next-env.d.ts

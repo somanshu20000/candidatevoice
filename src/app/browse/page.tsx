@@ -3,8 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import Link from "next/link";
 import SubmissionCard from "@/components/SubmissionCard";
+import CompanyCard from "@/components/CompanyCard";
 import { supabase } from "@/lib/supabase/browser";
+import { listCompanies, type CompanyListItem } from "@/lib/company-intelligence/directory";
 import { normalizeCompanySlug } from "@/lib/company-slug";
 import { reasonLabel, reasonSummary } from "@/utils/labels";
 import type { HiringStage, SubmissionCardData } from "@/types/index";
@@ -41,11 +44,31 @@ export default function BrowsePage() {
   const [companyOptions, setCompanyOptions] = useState<string[]>(["All Companies"]);
   const [rows, setRows] = useState<SubmissionCardData[]>([]);
   const [totalCount, setTotalCount] = useState(0);
+  const [companies, setCompanies] = useState<CompanyListItem[]>([]);
+  const [companyTotal, setCompanyTotal] = useState(0);
+  const [companiesLoading, setCompaniesLoading] = useState(true);
 
   const totalPages = useMemo(
     () => Math.max(1, Math.ceil(totalCount / PAGE_SIZE)),
     [totalCount]
   );
+
+  // A preview of the company directory. The full, paginated, searchable list
+  // lives at /companies; this shows the first handful with a link through.
+  useEffect(() => {
+    async function loadCompanies() {
+      try {
+        const { items, total } = await listCompanies(supabase, { limit: 6, offset: 0 });
+        setCompanies(items);
+        setCompanyTotal(total);
+      } catch {
+        setCompanies([]);
+      } finally {
+        setCompaniesLoading(false);
+      }
+    }
+    loadCompanies();
+  }, []);
 
   // Maps the reported stage to its card label. `final` means the candidate
   // reached the final round — it asserts nothing about the outcome.
@@ -127,9 +150,49 @@ export default function BrowsePage() {
 
       <main className="max-w-6xl mx-auto px-4 py-14 w-full flex-1">
         <div className="mb-8 pb-6 border-b border-rule">
-          <h1 className="font-serif text-3xl text-ink mb-1">Browse Submissions</h1>
-          <p className="text-sm text-ink-muted tnum">{totalCount} submissions found</p>
+          <h1 className="font-serif text-3xl text-ink mb-1">Browse</h1>
+          <p className="text-sm text-ink-muted">Companies and candidate hiring reports.</p>
         </div>
+
+        {/* Companies directory preview */}
+        <section className="mb-12">
+          <div className="flex items-center justify-between mb-5">
+            <h2 className="font-serif text-2xl text-ink">Companies</h2>
+            <Link
+              href="/companies"
+              className="text-sm text-accent hover:text-accent-hover hover:underline"
+            >
+              View all{companyTotal > 0 ? ` ${companyTotal}` : ""} →
+            </Link>
+          </div>
+          {companiesLoading ? (
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+              {[0, 1, 2].map((i) => (
+                <div
+                  key={i}
+                  className="h-28 border border-rule bg-paper-sheet rounded-sm animate-pulse"
+                />
+              ))}
+            </div>
+          ) : companies.length === 0 ? (
+            <div className="border border-dashed border-rule-strong bg-paper-sheet rounded-sm p-10 text-center">
+              <p className="text-sm text-ink-muted">No companies yet.</p>
+            </div>
+          ) : (
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+              {companies.map((c) => (
+                <CompanyCard key={c.slug} company={c} />
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* Hiring reports */}
+        <section>
+          <div className="flex items-baseline justify-between mb-5">
+            <h2 className="font-serif text-2xl text-ink">Hiring reports</h2>
+            <span className="text-sm text-ink-muted tnum">{totalCount} found</span>
+          </div>
 
         {/* Filter bar */}
         <div className="flex flex-wrap gap-3 mb-8 p-4 border border-rule bg-paper-sheet rounded-sm shadow-sheet">
@@ -210,6 +273,7 @@ export default function BrowsePage() {
             </button>
           </div>
         )}
+        </section>
       </main>
 
       <Footer />

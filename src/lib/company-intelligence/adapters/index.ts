@@ -15,6 +15,10 @@
 
 import type { SourceAdapter } from "../types";
 import { seedFileAdapter } from "./seed-file";
+import { wikidataAdapter } from "./wikidata";
+import { wikipediaAdapter } from "./wikipedia";
+import { githubOrgAdapter } from "./github-org";
+import { websiteMetaAdapter } from "./website-meta";
 
 const REGISTRY = new Map<string, SourceAdapter>();
 
@@ -35,5 +39,9 @@ export function listAdapters(): SourceAdapter[] {
 
 // Built-in adapters.
 registerAdapter(seedFileAdapter);
+registerAdapter(wikidataAdapter);
+registerAdapter(wikipediaAdapter);
+registerAdapter(githubOrgAdapter);
+registerAdapter(websiteMetaAdapter);
 
-export { seedFileAdapter };
+export { seedFileAdapter, wikidataAdapter, wikipediaAdapter, githubOrgAdapter, websiteMetaAdapter };

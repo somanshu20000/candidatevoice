@@ -206,23 +206,39 @@ export function createSupabaseCompanyStore(client: SupabaseClient): CompanyStore
     },
 
     async upsertProfile(input) {
+      // Read the existing row first. A blind upsert would write every field
+      // this call supplies, including null — so a second adapter that only
+      // knows `description` would silently erase a `founded_year` an earlier,
+      // higher-quality adapter had already set. Once there is more than one
+      // real adapter contributing to the same organization, that is not a
+      // hypothetical: it is what happens on the very next import run.
+      //
+      // Policy: a null here never overwrites a non-null already on the row.
+      // Two different non-null values still resolve by import order (the
+      // caller sequences adapters from lowest to highest trust_tier); this
+      // only prevents *absence* of data from destroying previously-known data.
       const existing = await client
         .from("company_profiles")
-        .select("organization_id")
+        .select("legal_name, description, founded_year, size_band, stock_symbol, stock_exchange, headquarters_city_id")
         .eq("organization_id", input.organizationId)
         .maybeSingle();
-      const outcome: "created" | "updated" = existing.data ? "updated" : "created";
+      if (existing.error) throw new Error(`upsertProfile read(${input.organizationId}): ${existing.error.message}`);
+      const prev = existing.data;
+      const outcome: "created" | "updated" = prev ? "updated" : "created";
+
+      const coalesce = <T>(next: T | null, current: T | null | undefined): T | null =>
+        next !== null ? next : (current ?? null);
 
       const { error } = await client.from("company_profiles").upsert(
         {
           organization_id: input.organizationId,
-          legal_name: input.legalName,
-          description: input.description,
-          founded_year: input.foundedYear,
-          size_band: input.sizeBand,
-          stock_symbol: input.stockSymbol,
-          stock_exchange: input.stockExchange,
-          headquarters_city_id: input.headquartersCityId,
+          legal_name: coalesce(input.legalName, prev?.legal_name),
+          description: coalesce(input.description, prev?.description),
+          founded_year: coalesce(input.foundedYear, prev?.founded_year),
+          size_band: coalesce(input.sizeBand, prev?.size_band),
+          stock_symbol: coalesce(input.stockSymbol, prev?.stock_symbol),
+          stock_exchange: coalesce(input.stockExchange, prev?.stock_exchange),
+          headquarters_city_id: coalesce(input.headquartersCityId, prev?.headquarters_city_id),
           metadata_source_id: input.sourceId,
           confidence: input.confidence,
         },

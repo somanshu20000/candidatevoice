@@ -2,8 +2,8 @@
  * validate-companies.ts — check a seed file without touching the database.
  *
  * Usage:
- *   npm run companies:validate -- data/companies/seed.json
- *   npm run companies:validate -- data/companies/seed.csv --strict
+ *   npm run companies:validate -- Data/companies/seed.json
+ *   npm run companies:validate -- Data/companies/seed.csv --strict
  *
  * Exit code 1 if any record has an error-severity issue (or, with --strict, any
  * warning), so it can gate a commit or CI step. Reads no secrets and makes no

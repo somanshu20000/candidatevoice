@@ -2,9 +2,9 @@
  * import-companies.ts — import a seed file into the Company Intelligence tables.
  *
  * Usage:
- *   npm run companies:import -- data/companies/seed.json
- *   npm run companies:import -- data/companies/in-tech.csv --source manual --confidence official
- *   npm run companies:import -- data/companies/seed.json --dry-run
+ *   npm run companies:import -- Data/companies/seed.json
+ *   npm run companies:import -- Data/companies/in-tech.csv --source manual --confidence official
+ *   npm run companies:import -- Data/companies/seed.json --dry-run
  *
  * Idempotent: re-running an unchanged file is a no-op (batch content hash), and
  * every row is upserted, so partial re-runs converge rather than duplicate.
