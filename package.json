@@ -26,6 +26,7 @@
     "react-dom": "18.2.0"
   },
   "devDependencies": {
+    "@types/node": "^20.14.0",
     "@types/react": "19.2.14",
     "autoprefixer": "10.4.14",
     "eslint-config-next": "14.2.35",
@@ -35,6 +36,5 @@
     "tsx": "^4.19.2",
     "typescript": "^4.9.5",
     "vitest": "^4.1.10"
-  },
-  "packageManager": "pnpm@11.17.0+sha512.cca3cea332ad254bb84145f966d19f4879615210346fc92c79a047f23a0d7b3cca3c3792f0076ba1f1831d277efbcf0a9119b31a9a60eca7fb3d6231f331ef72"
+  }
 }
