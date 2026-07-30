@@ -211,6 +211,57 @@ CSV columns match the JSON keys; list fields use `;` or `|` separators;
 | `npm run companies:sync -- [--limit N] [--type website]` | Re-check stored links; record `last_status`. Flags broken links, never deletes. |
 | `npm run companies:aliases -- --list/--add/--merge/--suggest` | Manage alias → org mappings. |
 | `npm run companies:fetch -- <company-list.txt> [--dry-run]` | Wikidata → GitHub → Wikipedia → official website, in that order. See [Built-in fetch adapters](#built-in-fetch-adapters). |
+| `npm run companies:bulk -- <file.csv> [--limit N] [--concurrency N] [--chunk N] [--fresh] [--dry-run] [--report out.json]` | Bulk import at scale: resumable, rate-limited, with a quality report. See [Bulk import](#bulk-import). |
+
+## Bulk import
+
+`scripts/bulk-import-companies.ts` is the path for importing many companies. It
+reuses the same four adapters and the same `runImport` pipeline (so the licence
+gate, per-source provenance and null-coalescing all still apply) and adds what a
+long run needs:
+
+- **Resumable.** Every completed company is appended to a checkpoint JSONL
+  beside the CSV, written *after* persistence. An interrupted run resumes; it
+  never skips a company whose data did not land. `--fresh` ignores the checkpoint.
+- **Honest accounting.** The report's denominator is the INPUT count, and each
+  company records why it produced what it did. A run where most fetches failed
+  cannot look like a clean one.
+- **One Wikidata resolution per company**, reused by the wikidata and wikipedia
+  adapters (previously three).
+- **Rate limiting, retries, backoff, timeouts, SSRF guarding and robots.txt** —
+  all from `http.ts`, applied to every adapter.
+
+### CSV columns
+
+`name` is required. The rest are optional hints that skip discovery:
+
+```csv
+name,wikidata_qid,github_org,website
+Stripe,Q7624104,stripe,https://stripe.com
+Okta,,okta,
+```
+
+**Prefer `wikidata_qid` for any curated list.** Name search is genuinely
+ambiguous for companies whose name is a product or a short word — measured
+against a real batch, `wbsearchentities` returns *given names* for "Okta"
+(the company is not in the results at all), the database software for "Redis",
+and nothing for "Grafana Labs". A supplied QID skips search entirely, and is
+still checked against the business and non-place gates, so a wrong id is
+rejected rather than imported. A list built from a Wikidata SPARQL query already
+carries QIDs — which is the recommended way to assemble a large list.
+
+### Entity verification
+
+Two gates, both learned from real failures:
+
+- **Positive**: the entity must be, transitively via `P31/P279*`, an instance of
+  business / organization / enterprise / company.
+- **Negative**: it must NOT be an administrative territorial entity, human
+  settlement, or geographic location. Without this, searching "Vercel" resolved
+  to **Vercel-Villedieu-le-Camp, a commune in Doubs, France**, and imported a
+  village's description and its 1962 founding year as the hosting company's.
+  A commune inherits "organization" via `P279*`, so the positive gate alone
+  passes it.
 
 Import/sync/aliases require `NEXT_PUBLIC_SUPABASE_URL` and
 `SUPABASE_SERVICE_ROLE_KEY`. Run via `tsx` (a dev dependency).
