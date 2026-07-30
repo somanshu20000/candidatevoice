@@ -15,7 +15,8 @@
     "companies:sync": "tsx scripts/sync-companies.ts",
     "companies:aliases": "tsx scripts/update-aliases.ts",
     "companies:fetch": "tsx scripts/fetch-company-metadata.ts",
-    "companies:bulk": "tsx scripts/bulk-import-companies.ts"
+    "companies:bulk": "tsx scripts/bulk-import-companies.ts",
+    "external:import": "tsx scripts/import-external.ts"
   },
   "dependencies": {
     "@supabase/ssr": "0.5.2",

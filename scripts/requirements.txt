@@ -1,0 +1,5 @@
+# Python deps for acquisition adapters only (reddit_ingest.py).
+# The database write is TypeScript (scripts/import-external.ts) — acquisition
+# adapters just emit canonical JSONL, so they need no Supabase/pandas here.
+praw>=7.7
+python-dotenv>=1.0
