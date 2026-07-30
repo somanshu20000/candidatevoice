@@ -59,6 +59,13 @@ export interface RawExternalReport {
   payment_flag?: boolean;
   /** Coarsened original date, YYYY-MM. Never an exact timestamp. */
   reported_month?: string;
+
+  // --- Explainability trail (from the adapter that did the extraction) ------
+  /** Adapter + extractor revision, e.g. "reddit-v1". Lets a buggy version's
+   *  output be found and re-extracted without touching good rows. */
+  extraction_version?: string;
+  /** The adapter's own 0..1 confidence in this extraction. */
+  extraction_confidence?: number;
 }
 
 /** A cleaned, validated report ready to persist as a pending external row. */
@@ -78,6 +85,16 @@ export interface NormalizedExternalReport {
   reportedMonth: string | null;
   /** SHA-256 of the normalized structured fields — the dedup / idempotency key. */
   contentHash: string;
+
+  // --- Explainability trail (persisted so imports are never opaque) ---------
+  /** Adapter/extractor revision, or "unknown" when the adapter omitted it. */
+  extractionVersion: string | null;
+  /** Adapter's own 0..1 extraction confidence, or null. */
+  extractionConfidence: number | null;
+  /** Which structured fields ended up populated — derived by the core. */
+  fieldsExtracted: string[];
+  /** What the validator flagged (dropped enums, coercions) — the quality trail. */
+  validationWarnings: { field: string; message: string }[];
 }
 
 export interface ValidationIssue {

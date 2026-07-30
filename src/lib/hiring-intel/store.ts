@@ -87,6 +87,12 @@ export function createSupabaseExternalReportStore(client: SupabaseClient): Exter
         reason: report.reason,
         payment_flag: report.paymentFlag,
         reported_month: report.reportedMonth,
+        // Explainability trail (migration 0009). Once written, these are
+        // immutable — the DB trigger rejects any later change to them.
+        extraction_version: report.extractionVersion,
+        extraction_confidence: report.extractionConfidence,
+        fields_extracted: report.fieldsExtracted,
+        validation_warnings: report.validationWarnings,
         // verification_status defaults to 'pending' — do not set it here.
       });
       if (error) throw new Error(`insertReport(${report.company}): ${error.message}`);

@@ -186,6 +186,40 @@ export function normalizeExternalReport(raw: RawExternalReport): ValidatedExtern
     reportedMonth,
   });
 
+  // --- Explainability trail -------------------------------------------------
+  // extraction_version / confidence come from the adapter (it did the work);
+  // fields_extracted and validation_warnings are DERIVED here, so a stored row
+  // always carries what actually happened to it, not the adapter's say-so.
+  const extractionVersion = cleanString(raw.extraction_version, 60);
+  let extractionConfidence: number | null = null;
+  if (typeof raw.extraction_confidence === "number" && Number.isFinite(raw.extraction_confidence)) {
+    if (raw.extraction_confidence >= 0 && raw.extraction_confidence <= 1) {
+      extractionConfidence = raw.extraction_confidence;
+    } else {
+      issues.push({ field: "extraction_confidence", severity: "warning", message: "out of [0,1] range; dropped" });
+    }
+  }
+
+  const fieldsExtracted = (
+    [
+      ["role", role],
+      ["experience_bucket", experienceBucket],
+      ["stage", stage],
+      ["outcome", outcome],
+      ["response_time_bucket", responseTimeBucket],
+      ["last_interaction_gap", lastInteractionGap],
+      ["reason", reason],
+      ["payment_flag", paymentFlag],
+      ["reported_month", reportedMonth],
+    ] as const
+  )
+    .filter(([, v]) => v !== null)
+    .map(([k]) => k);
+
+  const validationWarnings = issues
+    .filter((i) => i.severity === "warning")
+    .map((i) => ({ field: i.field, message: i.message }));
+
   return {
     normalized: {
       company: company as string,
@@ -202,6 +236,10 @@ export function normalizeExternalReport(raw: RawExternalReport): ValidatedExtern
       paymentFlag,
       reportedMonth,
       contentHash,
+      extractionVersion,
+      extractionConfidence,
+      fieldsExtracted,
+      validationWarnings,
     },
     issues,
   };

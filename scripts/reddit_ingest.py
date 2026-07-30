@@ -45,6 +45,10 @@ load_dotenv(REPO_ROOT / ".env.local")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
+# Bump when the extraction logic below changes, so rows can be traced to the
+# exact extractor that produced them and re-extracted selectively.
+EXTRACTION_VERSION = "reddit-v1"
+
 DEFAULT_SUBREDDITS = [
     "cscareerquestions", "ExperiencedDevs", "indiajobs",
     "cscareerquestionsCAD", "cscareerquestionsEU", "recruitinghell", "jobs",
@@ -205,15 +209,25 @@ class RedditAdapter:
         if not (st or oc or rt or pf is not None):
             return None
         month = datetime.fromtimestamp(post.created_utc, tz=timezone.utc).strftime("%Y-%m")
+        rl = role(text)
+        # Confidence: this extractor is regex/keyword based, so confidence scales
+        # with how many independent signals it found. A single signal is a weak
+        # guess; several agreeing signals are stronger. Deliberately conservative
+        # — the core stores this so extraction quality can be tracked and the
+        # weighted score can discount low-confidence rows.
+        signals = sum(1 for v in (rl, st, oc, rt, (pf if pf is not None else None)) if v)
+        confidence = round(min(0.3 + 0.15 * signals, 0.85), 2)
         # CANONICAL CONTRACT ONLY. No title, no body, no author.
         record = {
             "company": c,
             "source_url": f"https://www.reddit.com{post.permalink}",
             "external_ref": f"t3_{post.id}",
             "reported_month": month,
+            "extraction_version": EXTRACTION_VERSION,
+            "extraction_confidence": confidence,
         }
-        if role(text):
-            record["role"] = role(text)
+        if rl:
+            record["role"] = rl
         if st:
             record["stage"] = st
         if oc:
