@@ -48,6 +48,20 @@ const EXPERIENCE_LABELS: Record<string, string> = {
   "8+": "8+ years",
 };
 
+const RESPONSE_TIME_LABELS: Record<string, string> = {
+  "0-3": "0–3 days",
+  "4-7": "4–7 days",
+  "8-14": "8–14 days",
+  "15+": "15+ days",
+};
+
+const LAST_INTERACTION_GAP_LABELS: Record<string, string> = {
+  "0-7": "0–7 days",
+  "8-14": "8–14 days",
+  "15-30": "15–30 days",
+  "30+": "30+ days",
+};
+
 /** Last-resort readable form: "some_value" -> "Some value". */
 function humanize(value: string): string {
   const spaced = value.replace(/_/g, " ").trim();
@@ -74,6 +88,14 @@ export function outcomeLabel(value: string | null | undefined): string {
 
 export function experienceLabel(value: string | null | undefined): string {
   return lookup(EXPERIENCE_LABELS, value);
+}
+
+export function responseTimeLabel(value: string | null | undefined): string {
+  return lookup(RESPONSE_TIME_LABELS, value);
+}
+
+export function lastInteractionGapLabel(value: string | null | undefined): string {
+  return lookup(LAST_INTERACTION_GAP_LABELS, value);
 }
 
 /**
