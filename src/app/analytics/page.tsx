@@ -1,12 +1,19 @@
 import Link from "next/link";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import { loadCompanyAnalytics, ghostingLeaderboard, fastestHiring } from "@/lib/evidence";
-import type { CompanyAnalytics } from "@/lib/evidence";
+import { loadCompanyAnalytics, ghostingLeaderboard, fastestHiring, rankCompanies } from "@/lib/evidence";
+import type { CompanyAnalytics, RankedCompany } from "@/lib/evidence";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 
 export const revalidate = 300;
+
+/** Current month as YYYY-MM, for the freshness factor. Computed here (a server
+ *  component may read the clock) and passed into the pure rank function. */
+function currentMonth(): string {
+  const now = new Date();
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+}
 
 function hqsColor(score: number): string {
   if (score >= 80) return "text-good";
@@ -29,21 +36,32 @@ function baseCaption(c: CompanyAnalytics): string {
   return `${eff} effective of ${total} ${total === 1 ? "report" : "reports"}${ext}`;
 }
 
-function RankingTable({ rows }: { rows: CompanyAnalytics[] }) {
+function RankingTable({ rows }: { rows: RankedCompany[] }) {
   return (
     <div className="border border-rule bg-paper-sheet rounded-sm shadow-sheet overflow-hidden">
-      {rows.map((c, i) => (
-        <div key={c.organizationId} className="flex items-center justify-between gap-3 px-5 py-3 border-b border-rule last:border-0">
-          <div className="flex items-center gap-3 min-w-0">
-            <span className="font-mono text-xs text-ink-faint w-6 shrink-0 tnum">{i + 1}</span>
-            <div className="min-w-0">
-              <CompanyLink c={c} />
-              <p className="text-[10px] text-ink-faint tnum">{baseCaption(c)}</p>
+      {rows.map((r, i) => {
+        const c = r.company;
+        // Surface the two factors that can pull a score down the list, so a
+        // reader isn't baffled to see a high HQS ranked below a lower one
+        // (Part 10 self-critique #1: effectiveN must be explained, not hidden).
+        const notes: string[] = [];
+        if (r.confidence < 1) notes.push(`${Math.round(r.confidence * 100)}% confidence`);
+        if (r.freshness < 0.85) notes.push(`${Math.round(r.freshness * 100)}% freshness`);
+        return (
+          <div key={c.organizationId} className="flex items-center justify-between gap-3 px-5 py-3 border-b border-rule last:border-0">
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="font-mono text-xs text-ink-faint w-6 shrink-0 tnum">{i + 1}</span>
+              <div className="min-w-0">
+                <CompanyLink c={c} />
+                <p className="text-[10px] text-ink-faint tnum">
+                  {baseCaption(c)}{notes.length > 0 && ` · ${notes.join(" · ")}`}
+                </p>
+              </div>
             </div>
+            <span className={`font-serif text-2xl tnum shrink-0 ${hqsColor(c.hqs!.score)}`}>{c.hqs!.score}</span>
           </div>
-          <span className={`font-serif text-2xl tnum shrink-0 ${hqsColor(c.hqs!.score)}`}>{c.hqs!.score}</span>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -99,6 +117,7 @@ export default async function AnalyticsPage() {
     );
   }
 
+  const searchRanked = rankCompanies(analytics.ranked, currentMonth());
   const ghosters = ghostingLeaderboard(analytics).slice(0, 10);
   const fastest = fastestHiring(analytics).slice(0, 10);
 
@@ -116,11 +135,11 @@ export default async function AnalyticsPage() {
         </div>
 
         <Section
-          title="Hiring Quality ranking"
-          subtitle={`${analytics.ranked.length} ranked ${analytics.ranked.length === 1 ? "company" : "companies"}, highest score first`}
+          title="Top companies"
+          subtitle="Ranked by hiring quality, weighted by how much evidence backs the score and how recent it is — a well-evidenced score outranks a thin one"
         >
-          {analytics.ranked.length > 0
-            ? <RankingTable rows={analytics.ranked} />
+          {searchRanked.length > 0
+            ? <RankingTable rows={searchRanked} />
             : <p className="text-sm text-ink-muted">No company has cleared the confidence threshold yet.</p>}
         </Section>
 

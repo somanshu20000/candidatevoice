@@ -60,3 +60,13 @@ export {
   type CompanyAnalytics,
   type AnalyticsResult,
 } from "./analytics";
+export {
+  searchRank,
+  rankCompanies,
+  confidenceFactor,
+  freshnessFactor,
+  CONFIDENCE_SATURATION_N,
+  FRESHNESS_HALF_LIFE_MONTHS,
+  type RankedCompany,
+  type SearchRankInputs,
+} from "./rank";
