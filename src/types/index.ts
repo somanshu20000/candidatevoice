@@ -27,7 +27,12 @@ export interface SubmissionCardData {
   rejection_stage: CardRejectionStage;
   rejection_reason: string;
   experience_text: string;
-  created_at: string;
+  /**
+   * YYYY-MM, from the public_submissions view — never a precise timestamp.
+   * Cards used to carry raw created_at; a to-the-second time alongside a
+   * company and role narrows a report to one identifiable person.
+   */
+  reported_month: string | null;
 }
 
 export interface HiringSubmission {

@@ -20,7 +20,8 @@ type BrowseRow = {
   role: string;
   stage: HiringStage;
   reason: string | null;
-  created_at: string;
+  /** YYYY-MM. The view's coarsened stand-in for created_at — see the query below. */
+  reported_month: string | null;
 };
 
 const STAGES: { value: HiringStage | "all"; label: string }[] = [
@@ -47,6 +48,7 @@ export default function BrowsePage() {
   const [companies, setCompanies] = useState<CompanyListItem[]>([]);
   const [companyTotal, setCompanyTotal] = useState(0);
   const [companiesLoading, setCompaniesLoading] = useState(true);
+  const [submissionsError, setSubmissionsError] = useState<string | null>(null);
 
   const totalPages = useMemo(
     () => Math.max(1, Math.ceil(totalCount / PAGE_SIZE)),
@@ -97,17 +99,24 @@ export default function BrowsePage() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+
     async function loadSubmissions() {
+      setSubmissionsError(null);
+
+      // Reads public_submissions, NOT hiring_submissions. The view (migration
+      // 0003) already applies `is_approved AND rejected_at IS NULL` and — the
+      // reason it exists — coarsens created_at to a YYYY-MM reported_month.
+      // Selecting raw created_at here was an anonymity leak: a precise
+      // timestamp plus a company and role can identify one candidate.
       let countQuery = supabase
-        .from("hiring_submissions")
-        .select("*", { count: "exact", head: true })
-        .eq("is_approved", true);
+        .from("public_submissions")
+        .select("*", { count: "exact", head: true });
 
       let dataQuery = supabase
-        .from("hiring_submissions")
-        .select("id, company, role, stage, reason, created_at")
-        .eq("is_approved", true)
-        .order("created_at", { ascending: false })
+        .from("public_submissions")
+        .select("id, company, role, stage, reason, reported_month")
+        .order("reported_month", { ascending: false })
         .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1);
 
       if (company !== "All Companies") {
@@ -119,29 +128,45 @@ export default function BrowsePage() {
         dataQuery = dataQuery.eq("stage", stage);
       }
 
-      const [{ count }, { data }] = await Promise.all([countQuery, dataQuery]);
-      setTotalCount(count ?? 0);
+      const [countRes, dataRes] = await Promise.all([countQuery, dataQuery]);
+      if (cancelled) return;
 
-      const mapped = ((data ?? []) as BrowseRow[]).map((row) => ({
-        id: row.id,
-        company: {
-          id: row.company,
-          slug: normalizeCompanySlug(row.company),
-          name: row.company,
-          industry: "Unknown",
-          domain: "",
-        },
-        role_title: row.role,
-        rejection_stage: mapStage(row.stage),
-        rejection_reason: reasonLabel(row.reason),
-        experience_text: reasonSummary(row.reason),
-        created_at: row.created_at,
-      }));
+      // Previously both errors were destructured away, so an outage rendered
+      // "No submissions match your filters" — indistinguishable from a genuinely
+      // empty result, and impossible to diagnose from the UI.
+      const failure = countRes.error ?? dataRes.error;
+      if (failure) {
+        console.error("[browse] submissions query failed:", failure);
+        setSubmissionsError("Could not load reports. Please try again.");
+        setRows([]);
+        setTotalCount(0);
+        return;
+      }
 
-      setRows(mapped);
+      setTotalCount(countRes.count ?? 0);
+      setRows(
+        ((dataRes.data ?? []) as BrowseRow[]).map((row) => ({
+          id: row.id,
+          company: {
+            id: row.company,
+            slug: normalizeCompanySlug(row.company),
+            name: row.company,
+            industry: "Unknown",
+            domain: "",
+          },
+          role_title: row.role,
+          rejection_stage: mapStage(row.stage),
+          rejection_reason: reasonLabel(row.reason),
+          experience_text: reasonSummary(row.reason),
+          reported_month: row.reported_month,
+        }))
+      );
     }
 
     loadSubmissions();
+    return () => {
+      cancelled = true;
+    };
   }, [company, stage, page]);
 
   return (
@@ -238,8 +263,14 @@ export default function BrowsePage() {
           </button>
         </div>
 
-        {/* Grid */}
-        {rows.length === 0 ? (
+        {/* Grid. An outage and a genuinely-empty result must not look alike —
+            they did before, which made the failure invisible to both users and us. */}
+        {submissionsError ? (
+          <div className="border border-dashed border-rule-strong bg-paper-sheet rounded-sm p-16 text-center">
+            <p className="text-sm text-ink-soft mb-1">{submissionsError}</p>
+            <p className="text-xs text-ink-muted">This is a problem on our side, not a filter with no matches.</p>
+          </div>
+        ) : rows.length === 0 ? (
           <div className="border border-dashed border-rule-strong bg-paper-sheet rounded-sm p-16 text-center">
             <p className="text-sm text-ink-muted">No submissions match your filters.</p>
           </div>

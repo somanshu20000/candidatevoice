@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { SubmissionCardData } from "@/types/index";
-import { getRelativeDate } from "@/utils/date";
+import { formatReportedMonth } from "@/utils/date";
 import StageBadge from "./StageBadge";
 
 export default function SubmissionCard({ submission }: { submission: SubmissionCardData }) {
@@ -23,7 +23,7 @@ export default function SubmissionCard({ submission }: { submission: SubmissionC
       </p>
 
       <p className="mt-auto text-[11px] font-mono text-ink-faint">
-        {getRelativeDate(submission.created_at)}
+        {formatReportedMonth(submission.reported_month)}
       </p>
     </Link>
   );

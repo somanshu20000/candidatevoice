@@ -6,6 +6,8 @@ import { loadEvidence, loadExternalDisplayRows } from "@/lib/evidence";
 import type { EvidenceItem, ExternalReportDisplayRow } from "@/lib/evidence";
 import { buildBehaviouralFingerprint, BEHAVIOURAL_DIMENSION_LABELS } from "@/lib/fingerprint/behavioural";
 import type { BehaviouralDimensionScore } from "@/lib/fingerprint/behavioural";
+import { buildForecast, hasAnyForecast } from "@/lib/fingerprint/forecast";
+import type { ForecastLine, ForecastTone } from "@/lib/fingerprint/forecast";
 import { computeHqs, HQS_WEIGHTS, HQS_MIN_EFFECTIVE_N } from "@/utils/hqs";
 import type { HqsResult, HqsTier } from "@/utils/hqs";
 import Navbar from "@/components/Navbar";
@@ -165,6 +167,59 @@ function ExternalReports({ rows }: { rows: ExternalReportDisplayRow[] }) {
   );
 }
 
+const FORECAST_TONE_CLS: Record<ForecastTone, string> = {
+  good: "text-good",
+  warn: "text-warn",
+  bad: "text-bad",
+  neutral: "text-ink",
+};
+
+/**
+ * The Interview Forecast — the page's reason to exist.
+ *
+ * Deliberately PUBLIC (outside the unlock gate). The give-to-get loop still
+ * guards the per-dimension mechanics and the external source list below, but
+ * the headline answer to "what will happen to me if I apply here" cannot be
+ * the thing we withhold: a visitor who has not interviewed anywhere yet has
+ * nothing to trade, and a link nobody can read is a link nobody shares.
+ */
+function ForecastPanel({ lines, rawTotal, tier }: { lines: ForecastLine[]; rawTotal: number; tier: HqsTier }) {
+  return (
+    <section className="border border-rule bg-paper-sheet rounded-sm p-6 sm:p-8 mb-8 shadow-sheet">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
+        <h2 className="font-serif text-xl sm:text-2xl text-ink">What to expect if you apply</h2>
+        <span className="text-[10px] font-mono uppercase tracking-wider text-ink-muted">
+          {tier} confidence
+        </span>
+      </div>
+      <p className="text-xs text-ink-muted mb-6">
+        What actually happened to {rawTotal} {rawTotal === 1 ? "person" : "people"} who reported on this company.
+      </p>
+
+      <div className="grid sm:grid-cols-2 gap-x-8">
+        {lines.map((line) => (
+          <div
+            key={line.key}
+            className="flex items-baseline justify-between gap-3 py-3 border-b border-rule last:border-0 sm:[&:nth-last-child(2)]:border-0"
+          >
+            <span className="text-sm text-ink-soft">{line.label}</span>
+            {line.value === null ? (
+              <span className="text-xs text-ink-faint text-right shrink-0">{line.unavailableReason}</span>
+            ) : (
+              <span className="text-right shrink-0">
+                <span className={`font-serif text-2xl tnum ${FORECAST_TONE_CLS[line.tone]}`}>
+                  {line.value}
+                </span>
+                <span className="block text-[10px] font-mono text-ink-faint tnum">{line.basis}</span>
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function HqsHeadline({ hqs, rawTotal, effectiveN }: { hqs: HqsResult; rawTotal: number; effectiveN: number }) {
   const lower = Math.round(hqs.interval.lower);
   const upper = Math.round(hqs.interval.upper);
@@ -244,6 +299,8 @@ export default async function CompanyPage({ params }: Props) {
 
   const fingerprint = buildBehaviouralFingerprint(evidenceSet!);
   const hqs = computeHqs(fingerprint);
+  const forecastLines = buildForecast(fingerprint, items);
+  const forecastAvailable = hasAnyForecast(forecastLines);
   const firstPartyRaw = evidenceSet!.base.firstPartyRaw;
   const externalRaw = evidenceSet!.base.externalRaw;
   const firstPartyProportion = Math.round(evidenceSet!.base.firstPartyProportion * 100);
@@ -271,10 +328,13 @@ export default async function CompanyPage({ params }: Props) {
 
         <CompanyActions slug={companySlug} />
 
-        {profile?.hasMetadata && <CompanyOverview profile={profile} />}
+        {/* THE ANSWER, first and unlocked. Everything below is supporting evidence. */}
+        {forecastAvailable && (
+          <ForecastPanel lines={forecastLines} rawTotal={rawTotal} tier={hqs?.tier ?? "insufficient"} />
+        )}
 
-        {/* HQS headline */}
-        <div className={`border ${hqs ? hqsBorderColor(hqs.score) : "border-rule"} bg-paper-sheet rounded-sm p-8 mb-8 shadow-sheet flex items-center justify-between gap-6`}>
+        {/* HQS headline — the one-number summary of the forecast above. */}
+        <div className={`border ${hqs ? hqsBorderColor(hqs.score) : "border-rule"} bg-paper-sheet rounded-sm p-6 sm:p-8 mb-8 shadow-sheet flex flex-wrap items-center justify-between gap-6`}>
           <div>
             <p className="text-[10px] font-mono uppercase tracking-wider text-ink-muted mb-2">
               Hiring Quality Score
@@ -290,7 +350,7 @@ export default async function CompanyPage({ params }: Props) {
               </>
             )}
           </div>
-          <div className="text-right shrink-0">
+          <div className="sm:text-right shrink-0">
             <span className={`inline-flex items-center border px-3 py-1 rounded-full text-[10px] font-mono uppercase tracking-wider font-medium ${tierBadge(hqs?.tier ?? "insufficient")}`}>
               {hqs?.tier ?? "insufficient"} confidence
             </span>
@@ -299,6 +359,8 @@ export default async function CompanyPage({ params }: Props) {
             </p>
           </div>
         </div>
+
+        {profile?.hasMetadata && <CompanyOverview profile={profile} />}
 
         {/* Evidence mix — only renders when external evidence exists. Shown
             regardless of unlock state: it's provenance, not the insight itself. */}
@@ -338,20 +400,20 @@ export default async function CompanyPage({ params }: Props) {
         ) : (
           <div className="space-y-6 mb-8">
             <div className="border border-rule bg-paper-sheet rounded-sm p-6 shadow-sheet">
-              <h2 className="font-serif text-lg text-ink mb-3">Unlock full insights</h2>
+              <h2 className="font-serif text-lg text-ink mb-3">See how this was measured</h2>
               <ul className="text-sm text-ink-soft mb-4 space-y-1">
-                {Object.values(BEHAVIOURAL_DIMENSION_LABELS).map((label) => (
-                  <li key={label}>— {label}</li>
-                ))}
+                <li>— Per-dimension scores and how much evidence backs each</li>
+                <li>— How far candidates got, stage by stage</li>
+                <li>— Every external source, with links to the original</li>
               </ul>
               <p className="text-xs text-ink-muted mb-5">
-                Submit your experience to unlock (2 mins, anonymous)
+                Share your own experience to unlock (2 mins, anonymous)
               </p>
               <Link
                 href={`/submit?company=${encodeURIComponent(companySlug)}`}
                 className="inline-flex items-center gap-2 bg-accent text-paper-sheet px-5 py-2.5 text-sm font-medium rounded-sm hover:bg-accent-hover transition-colors"
               >
-                Unlock insights →
+                Unlock the breakdown →
               </Link>
             </div>
 

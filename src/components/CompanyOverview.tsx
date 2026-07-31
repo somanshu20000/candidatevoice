@@ -179,7 +179,14 @@ export default function CompanyOverview({ profile }: { profile: CompanyProfileVi
   );
 }
 
-/** The three profile actions. Share works today; Compare/Wishlist arrive with later phases. */
+/**
+ * Profile actions.
+ *
+ * Only actions that actually work ship here. Permanently-disabled Compare and
+ * Wishlist buttons used to sit alongside this one; they were removed for
+ * release rather than left greyed out. A dead control teaches a visitor the
+ * product is unfinished, which costs more trust than the missing feature does.
+ */
 export function CompanyActions({ slug }: { slug: string }) {
   return (
     <div className="flex flex-wrap gap-2.5 mb-8">
@@ -189,22 +196,6 @@ export function CompanyActions({ slug }: { slug: string }) {
       >
         Share Experience
       </Link>
-      <button
-        type="button"
-        disabled
-        title="Company comparison arrives with the Compare page"
-        className="inline-flex items-center gap-2 border border-rule bg-paper-sheet text-ink-faint px-5 py-2.5 text-sm font-medium rounded-sm cursor-not-allowed"
-      >
-        Compare
-      </button>
-      <button
-        type="button"
-        disabled
-        title="Wishlist arrives with accounts"
-        className="inline-flex items-center gap-2 border border-rule bg-paper-sheet text-ink-faint px-5 py-2.5 text-sm font-medium rounded-sm cursor-not-allowed"
-      >
-        Wishlist
-      </button>
     </div>
   );
 }

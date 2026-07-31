@@ -35,7 +35,8 @@ type SubmissionRow = {
   role: string;
   stage: "applied" | "screening" | "technical" | "hr" | "final";
   reason: string;
-  created_at: string;
+  /** YYYY-MM from public_submissions — never a raw timestamp. */
+  reported_month: string | null;
 };
 
 function toSlug(name: string) {
@@ -44,18 +45,20 @@ function toSlug(name: string) {
 
 export default async function HomePage() {
   const supabase = createClient();
+  // public_submissions, not the base table: the view already filters to
+  // approved-and-not-rejected AND coarsens created_at to reported_month.
+  // Selecting a raw timestamp beside a company and role was an anonymity leak.
   const { data } = await supabase
-    .from("hiring_submissions")
+    .from("public_submissions")
     .select(`
       id,
       company,
       role,
       stage,
       reason,
-      created_at
+      reported_month
     `)
-    .eq("is_approved", true)
-    .order("created_at", { ascending: false })
+    .order("reported_month", { ascending: false })
     .limit(10);
 
   const rows = (data ?? []) as SubmissionRow[];
@@ -86,7 +89,7 @@ export default async function HomePage() {
         rejection_stage: mappedStage,
         rejection_reason: reasonLabel(row.reason),
         experience_text: reasonSummary(row.reason),
-        created_at: row.created_at,
+        reported_month: row.reported_month,
       };
     });
 

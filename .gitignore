@@ -65,3 +65,6 @@ CandidateVoice/
 
 # project archives
 *.zip
+
+# Local tooling (dev-server launch config)
+.claude/
