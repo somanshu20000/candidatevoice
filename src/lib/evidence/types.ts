@@ -96,6 +96,12 @@ export interface EvidenceBase {
 }
 
 export interface EvidenceSet {
+  /** The canonical organization this set represents — the value the slug
+   *  resolved to at load time. Exposed at the top level so a caller that
+   *  needs to fetch related data (external-report display rows, company
+   *  metadata) doesn't have to resolve the slug a second time or reach into
+   *  items[0]?.organizationId (which is undefined when items is empty). */
+  organizationId: string;
   items: EvidenceItem[];
   base: EvidenceBase;
   /** The global bootstrap multiplier in force when this set was built — for

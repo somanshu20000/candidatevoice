@@ -51,7 +51,7 @@ function evidenceItem(fields: Partial<EvidenceItem> & Pick<EvidenceItem, "id" | 
 }
 
 function evidenceSet(items: EvidenceItem[], globalMultiplier = 0.35): EvidenceSet {
-  return { items, base: describeBase(items), globalMultiplier };
+  return { organizationId: "org-1", items, base: describeBase(items), globalMultiplier };
 }
 
 function dim(fp: { dimensions: BehaviouralDimensionScore[] }, key: BehaviouralDimensionKey) {

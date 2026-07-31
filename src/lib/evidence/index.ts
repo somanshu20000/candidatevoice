@@ -39,6 +39,7 @@ export async function loadEvidence(client: SupabaseClient, companySlug: string):
   ];
 
   return {
+    organizationId,
     items,
     base: describeBase(items),
     globalMultiplier,
@@ -47,3 +48,4 @@ export async function loadEvidence(client: SupabaseClient, companySlug: string):
 
 export type { EvidenceItem, EvidenceSet, EvidenceBase, EvidenceFamily, MetricResult } from "./types";
 export { weightedRate, weightedMean, weightedShare, kishEffectiveN, describeBase } from "./aggregate";
+export { loadExternalDisplayRows, type ExternalReportDisplayRow } from "./load";

@@ -84,3 +84,57 @@ export async function resolveOrganizationId(client: SupabaseClient, companySlug:
   if (error) return null;
   return (data as string | null) ?? null;
 }
+
+/**
+ * A single external report shaped for DISPLAY, not aggregation — carries the
+ * source link and human-readable source name the company page's "External"
+ * section needs (ADR-0002 Part 6: "clearly labelled · source-linked ·
+ * unverified badge · visually distinct"). Deliberately separate from the
+ * EvidenceItem the engine weights: the engine never needs source_url, and a
+ * display surface never needs the weight.
+ */
+export interface ExternalReportDisplayRow {
+  id: string;
+  sourceKey: string;
+  sourceName: string;
+  sourceUrl: string;
+  role: string | null;
+  stage: string | null;
+  outcome: string | null;
+  reason: string | null;
+  reportedMonth: string | null;
+  extractionConfidence: number | string | null;
+}
+
+const EXTERNAL_DISPLAY_SELECT =
+  "id, source_key, source_name, source_url, role, stage, outcome, reason, reported_month, extraction_confidence";
+
+/**
+ * Load approved external reports for a company, shaped for display. Same view
+ * (public_external_reports → approved + enabled only), different projection.
+ * Returns [] on any error rather than throwing — the External section is
+ * supplementary and must never take down the page.
+ */
+export async function loadExternalDisplayRows(client: SupabaseClient, organizationId: string): Promise<ExternalReportDisplayRow[]> {
+  const { data, error } = await client
+    .from("public_external_reports")
+    .select(EXTERNAL_DISPLAY_SELECT)
+    .eq("organization_id", organizationId)
+    .order("reported_month", { ascending: false });
+  if (error) return [];
+  return (data ?? []).map((r) => {
+    const row = r as Record<string, unknown>;
+    return {
+      id: String(row.id),
+      sourceKey: String(row.source_key),
+      sourceName: String(row.source_name ?? row.source_key),
+      sourceUrl: String(row.source_url),
+      role: (row.role as string | null) ?? null,
+      stage: (row.stage as string | null) ?? null,
+      outcome: (row.outcome as string | null) ?? null,
+      reason: (row.reason as string | null) ?? null,
+      reportedMonth: (row.reported_month as string | null) ?? null,
+      extractionConfidence: (row.extraction_confidence as number | string | null) ?? null,
+    };
+  });
+}

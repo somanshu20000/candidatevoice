@@ -2,8 +2,8 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import { loadEvidence } from "@/lib/evidence";
-import type { EvidenceItem } from "@/lib/evidence";
+import { loadEvidence, loadExternalDisplayRows } from "@/lib/evidence";
+import type { EvidenceItem, ExternalReportDisplayRow } from "@/lib/evidence";
 import { buildBehaviouralFingerprint, BEHAVIOURAL_DIMENSION_LABELS } from "@/lib/fingerprint/behavioural";
 import type { BehaviouralDimensionScore } from "@/lib/fingerprint/behavioural";
 import { computeHqs, HQS_WEIGHTS, HQS_MIN_EFFECTIVE_N } from "@/utils/hqs";
@@ -98,6 +98,73 @@ function StageBar({ items }: { items: EvidenceItem[] }) {
   );
 }
 
+const OUTCOME_LABELS: Record<string, string> = {
+  rejected: "Rejected", no_response: "No response", offer: "Offer", ongoing: "Ongoing",
+};
+
+function EvidenceMix({ firstPartyProportion, firstPartyRaw, externalRaw }: { firstPartyProportion: number; firstPartyRaw: number; externalRaw: number }) {
+  // Only worth rendering the split when there IS external evidence — otherwise
+  // "100% first-party" is noise on a page that's entirely first-party anyway.
+  if (externalRaw === 0) return null;
+  const externalProportion = 100 - firstPartyProportion;
+  return (
+    <div className="border border-rule bg-paper-sheet rounded-sm p-6 shadow-sheet mb-8">
+      <h2 className="font-serif text-lg text-ink mb-3">Evidence mix</h2>
+      <div className="flex h-2 rounded-full overflow-hidden mb-3 bg-paper-sunk">
+        <div className="bg-accent h-full" style={{ width: `${firstPartyProportion}%` }} />
+        <div className="bg-ink-faint h-full" style={{ width: `${externalProportion}%` }} />
+      </div>
+      <div className="flex items-center justify-between text-xs text-ink-soft">
+        <span>{firstPartyProportion}% first-party · {firstPartyRaw} {firstPartyRaw === 1 ? "report" : "reports"}</span>
+        <span>{externalProportion}% external · {externalRaw} {externalRaw === 1 ? "report" : "reports"}</span>
+      </div>
+      <p className="text-[10px] text-ink-faint mt-3 leading-relaxed">
+        Shares are by evidence <em>weight</em>, not raw count — external reports count for less,
+        so their share here is smaller than their report count alone would suggest.
+      </p>
+    </div>
+  );
+}
+
+function ExternalReports({ rows }: { rows: ExternalReportDisplayRow[] }) {
+  if (rows.length === 0) return null;
+  return (
+    <div className="border border-dashed border-rule-strong bg-paper-sunk rounded-sm p-6 mb-8">
+      <div className="flex items-center gap-2 mb-1">
+        <h2 className="font-serif text-lg text-ink">External reports</h2>
+        <span className="text-[10px] font-mono uppercase tracking-wider text-ink-muted border border-rule-strong rounded-full px-2 py-0.5">
+          unverified
+        </span>
+      </div>
+      <p className="text-xs text-ink-muted mb-4">
+        Sourced from public third-party discussions. Structured facts only — never the original text.
+        Counts for less than a first-party report and is shown separately.
+      </p>
+      <div className="space-y-2.5">
+        {rows.map((r) => (
+          <div key={r.id} className="flex items-center justify-between gap-3 py-2 border-b border-rule last:border-0">
+            <div className="min-w-0">
+              <span className="text-sm text-ink-soft">
+                {r.outcome ? OUTCOME_LABELS[r.outcome] ?? r.outcome : "Report"}
+                {r.role && <span className="text-ink-muted"> · {r.role}</span>}
+              </span>
+              {r.reportedMonth && <span className="ml-2 text-[10px] font-mono text-ink-faint tnum">{r.reportedMonth}</span>}
+            </div>
+            <a
+              href={r.sourceUrl}
+              target="_blank"
+              rel="noopener noreferrer nofollow"
+              className="text-xs text-accent hover:text-accent-hover shrink-0 whitespace-nowrap"
+            >
+              {r.sourceName} ↗
+            </a>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function HqsHeadline({ hqs, rawTotal, effectiveN }: { hqs: HqsResult; rawTotal: number; effectiveN: number }) {
   const lower = Math.round(hqs.interval.lower);
   const upper = Math.round(hqs.interval.upper);
@@ -181,6 +248,14 @@ export default async function CompanyPage({ params }: Props) {
   const externalRaw = evidenceSet!.base.externalRaw;
   const firstPartyProportion = Math.round(evidenceSet!.base.firstPartyProportion * 100);
 
+  // Display rows for the External section — only fetched when external
+  // evidence actually exists, so the common all-first-party company pays
+  // nothing. Failures return [] (the reader swallows them), never blocking.
+  const externalDisplayRows: ExternalReportDisplayRow[] =
+    externalRaw > 0
+      ? await loadExternalDisplayRows(supabase as unknown as SupabaseClient, evidenceSet!.organizationId)
+      : [];
+
   return (
     <div className="min-h-screen flex flex-col">
       <Navbar />
@@ -225,27 +300,41 @@ export default async function CompanyPage({ params }: Props) {
           </div>
         </div>
 
+        {/* Evidence mix — only renders when external evidence exists. Shown
+            regardless of unlock state: it's provenance, not the insight itself. */}
+        <EvidenceMix
+          firstPartyProportion={firstPartyProportion}
+          firstPartyRaw={firstPartyRaw}
+          externalRaw={externalRaw}
+        />
+
         {isUnlocked ? (
-          <div className="grid md:grid-cols-2 gap-6 mb-8">
-            {/* Behavioural breakdown */}
-            <div className="border border-rule bg-paper-sheet rounded-sm p-6 shadow-sheet">
-              <h2 className="font-serif text-lg text-ink mb-4">Behavioural fingerprint</h2>
-              {fingerprint.dimensions.map((d) => (
-                <DimensionRow key={d.key} dim={d} />
-              ))}
-              <p className="text-[10px] text-ink-faint mt-4 leading-relaxed">
-                Higher is always better. Suppressed dimensions have too little
-                supporting evidence to score honestly.
-              </p>
+          <>
+            <div className="grid md:grid-cols-2 gap-6 mb-8">
+              {/* Behavioural breakdown */}
+              <div className="border border-rule bg-paper-sheet rounded-sm p-6 shadow-sheet">
+                <h2 className="font-serif text-lg text-ink mb-4">Behavioural fingerprint</h2>
+                {fingerprint.dimensions.map((d) => (
+                  <DimensionRow key={d.key} dim={d} />
+                ))}
+                <p className="text-[10px] text-ink-faint mt-4 leading-relaxed">
+                  Higher is always better. Suppressed dimensions have too little
+                  supporting evidence to score honestly.
+                </p>
+              </div>
+
+              {/* Stage distribution — raw counts across families. Weighted-share
+                  is deferred to the analytics surfaces (M6). */}
+              <div className="border border-rule bg-paper-sheet rounded-sm p-6 shadow-sheet">
+                <h2 className="font-serif text-lg text-ink mb-4">Stage distribution</h2>
+                <StageBar items={items} />
+              </div>
             </div>
 
-            {/* Stage distribution — kept as raw counts across families for M3;
-                weighted-share treatment is M5's job. */}
-            <div className="border border-rule bg-paper-sheet rounded-sm p-6 shadow-sheet">
-              <h2 className="font-serif text-lg text-ink mb-4">Stage distribution</h2>
-              <StageBar items={items} />
-            </div>
-          </div>
+            {/* External reports — clearly labelled, source-linked, visually
+                distinct (dashed border, sunk background). Part 6 non-negotiable. */}
+            <ExternalReports rows={externalDisplayRows} />
+          </>
         ) : (
           <div className="space-y-6 mb-8">
             <div className="border border-rule bg-paper-sheet rounded-sm p-6 shadow-sheet">
