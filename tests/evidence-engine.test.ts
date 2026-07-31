@@ -180,6 +180,47 @@ describe("weightedRate", () => {
     const result = weightedRate(items, { eligible: (item) => item.outcome !== null, hit: () => true });
     expect(result.coverage).toBe(0.25);
   });
+
+  it("passes at effectiveN === minEffectiveN — the gate is strictly less-than, not less-or-equal", () => {
+    // Guards the specific silent-regression class where a future refactor
+    // flips the check to <= and everything else still passes: a metric whose
+    // effectiveN just clears the floor must still render, not suppress.
+    const items = Array.from({ length: 5 }, (_, i) =>
+      evidenceItem({ id: `fp-${i}`, family: "first_party", weight: 1, outcome: i < 3 ? "offer" : "no_response" })
+    );
+    const result = weightedRate(items, {
+      eligible: (item) => item.outcome !== null,
+      hit: (item) => item.outcome === "offer",
+      minEffectiveN: 5,
+    });
+
+    expect(result.suppressed).toBe(false);
+    expect(result.value).toBeCloseTo(0.6, 5);
+  });
+
+  it("field asymmetry (ADR-0002 W1): a first-party-only metric on mixed evidence exposes reduced coverage", () => {
+    // The exact class of bug that killed Early Rejection as a cross-family
+    // metric — callDuration is null on every external row, so a metric using
+    // it must show `coverage < 1` and its denominator must exclude external
+    // rows entirely, never silently averaging over a biased subset while
+    // reporting a "full" sample.
+    const items: EvidenceItem[] = [
+      evidenceItem({ id: "fp-1", family: "first_party", weight: 1, callDuration: "<2" }),
+      evidenceItem({ id: "fp-2", family: "first_party", weight: 1, callDuration: "2-5" }),
+      evidenceItem({ id: "fp-3", family: "first_party", weight: 1, callDuration: "15+" }),
+      evidenceItem({ id: "ext-1", family: "external", weight: 0.126, callDuration: null }),
+      evidenceItem({ id: "ext-2", family: "external", weight: 0.126, callDuration: null }),
+    ];
+    const result = weightedRate(items, {
+      eligible: (item) => item.callDuration !== null,
+      hit: (item) => item.callDuration === "<2",
+    });
+
+    expect(result.rawDenominator).toBe(3); // external rows excluded from denominator
+    expect(result.coverage).toBe(0.6); // 3 of 5 items have the field at all
+    expect(result.weightedDenominator).toBe(3);
+    expect(result.value).toBeCloseTo(1 / 3, 5);
+  });
 });
 
 describe("weightedMean", () => {
@@ -267,6 +308,17 @@ describe("describeBase", () => {
     expect(base.monthsSpanned).toBe(4); // Nov, Dec, Jan, Feb
   });
 
+  it("reports monthsSpanned = 1 (not 0) when all evidence is in one month", () => {
+    // Off-by-one guard: monthIndex(A) - monthIndex(A) = 0, so the +1 in the
+    // formula is what makes "one month of data" report as spanning 1 month
+    // rather than 0. Easy to lose in a refactor; no other test would catch it.
+    const items: EvidenceItem[] = [
+      evidenceItem({ id: "a", family: "first_party", weight: 1, reportedMonth: "2026-07" }),
+      evidenceItem({ id: "b", family: "first_party", weight: 1, reportedMonth: "2026-07" }),
+    ];
+    expect(describeBase(items).monthsSpanned).toBe(1);
+  });
+
   it("handles an empty evidence set without producing NaN", () => {
     const base = describeBase([]);
     expect(base).toEqual({
@@ -326,6 +378,29 @@ describe("normalizeExternal", () => {
       globalMultiplier: 0.35,
     });
     expect(item.weight).toBe(expected);
+  });
+
+  it("coerces numeric-shaped strings — the shape PostgREST actually returns for numeric columns", () => {
+    // Live-verified: trust_weight and extraction_confidence come back from the
+    // public_external_reports view as JSON strings ("0.40", "0.90"), not
+    // numbers. RawExternalRow declares `number | string` for exactly this
+    // reason; a future change that assumes number-only would silently produce
+    // NaN weights, so pin the behaviour explicitly.
+    const row = rawExternalRow({
+      id: "a",
+      trust_weight: "0.40" as unknown as number,
+      extraction_confidence: "0.90" as unknown as number,
+    });
+    const [item] = normalizeExternal([row], 0.35);
+    const expected = externalEvidenceWeight({
+      sourceTrust: 0.4,
+      extractionConfidence: 0.9,
+      status: "approved",
+      globalMultiplier: 0.35,
+    });
+    expect(item.weight).toBe(expected);
+    expect(Number.isFinite(item.weight)).toBe(true);
+    expect(item.extractionConfidence).toBe(0.9);
   });
 
   it("forces weight to exactly 0 when the global multiplier is 0 — the sunset switch", () => {

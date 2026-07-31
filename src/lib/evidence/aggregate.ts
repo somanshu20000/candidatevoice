@@ -106,8 +106,14 @@ export function weightedRate(items: EvidenceItem[], options: WeightedRateOptions
  * Items where `value` returns null are excluded entirely — never coerced to
  * a placeholder score (this is the fix for the latent `|| 50` defect:
  * an unrecognized bucket must shrink coverage, not score as neutral).
- * `rawNumerator`/`rawDenominator` are the same computation at weight=1, so a
- * caller can compare the unweighted mean against the weighted one.
+ *
+ * `rawNumerator`/`rawDenominator` on the returned MetricResult are the same
+ * computation at weight=1, so a caller can compare the unweighted mean
+ * against the weighted one. For weightedMean specifically, that means
+ * `rawNumerator` is the SUM of accessor values (not a count) — the invariant
+ * across all three primitives is that `raw = num/denom` gives the unweighted
+ * result and `weighted = num/denom` gives the weighted one, not that either
+ * numerator is always a count.
  */
 export function weightedMean(
   items: EvidenceItem[],
