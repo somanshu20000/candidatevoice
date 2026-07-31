@@ -47,6 +47,12 @@ export interface HiringSubmission {
   created_at: string;
   /** Soft-delete marker set by admin/reject — rejected rows are kept for audit history, not hard-deleted. */
   rejected_at?: string | null;
+  /** Resolved canonical employer (migration 0002). Nullable: set at submit time
+   *  via resolve_organization()/create-on-miss; null only if that resolution
+   *  itself failed (fail-open — a submission is never dropped over it). */
+  organization_id?: string | null;
+  /** Always 'candidate' today — see migration 0000. */
+  reporter_type?: string;
 }
 
 export type Database = {

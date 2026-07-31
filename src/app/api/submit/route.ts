@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 import {
@@ -27,6 +28,85 @@ const VALID_LAST_INTERACTION_GAPS = ["0-7", "8-14", "15-30", "30+"];
 const VALID_CALL_DURATIONS = ["<2", "2-5", "5-15", "15+", "na"];
 const VALID_FIRST_INTERACTION_OUTCOMES = ["continued", "rejected_immediately", "na"];
 const VALID_REASONS = ["experience_mismatch", "skill_mismatch", "culture_fit", "no_reason", "other"];
+
+/**
+ * Resolve the submitted company slug to a canonical organization, creating one
+ * if this is the first time this employer has ever been observed.
+ *
+ * WHY THIS EXISTS. Until now this route never set organization_id, so every
+ * new first-party submission had it NULL — meanwhile external_reports resolves
+ * it at import time. The two evidence families keyed on different identifiers
+ * and could not be joined (see docs/adr-0002-evidence-engine.md, blocker B2).
+ * The Evidence Engine joins first-party and external evidence by
+ * organization_id; this is the fix at the source.
+ *
+ * organizations is not in the hand-authored Database type (same reason as
+ * src/lib/company-intelligence and src/lib/hiring-intel cast their clients),
+ * so `client` is typed as the untyped SupabaseClient the caller casts to.
+ *
+ * FAIL-OPEN BY DESIGN. organization_id has always been nullable specifically
+ * so a resolution hiccup can never cost a submission (see 0002_organizations.sql:
+ * "Nullable on purpose... nothing is invisible while unresolved"). Any error
+ * here is swallowed and returns null — the row still gets saved with its raw
+ * `company` slug intact, evidence is never dropped over this.
+ *
+ * Mirrors createSupabaseCompanyStore.createOrganization in
+ * src/lib/company-intelligence/store.ts: upsert with ignoreDuplicates guards
+ * the race where two submissions for a brand-new employer arrive at once.
+ */
+async function resolveOrCreateOrganization(client: SupabaseClient, rawSlug: string): Promise<string | null> {
+  try {
+    const resolved = await client.rpc("resolve_organization", { p_slug: rawSlug });
+    if (resolved.error) throw resolved.error;
+    if (resolved.data) return resolved.data as string;
+
+    // No existing organization matches this slug, even canonicalized — this is
+    // the first time this employer name has been observed. Create it at its
+    // canonical slug, exactly as the Company Intelligence importer would.
+    const canonicalized = await client.rpc("canonicalize_slug", { p_slug: rawSlug });
+    if (canonicalized.error) throw canonicalized.error;
+    const canonicalSlug = canonicalized.data as string | null;
+    // A slug that canonicalizes to empty (pure punctuation/symbols) cannot back
+    // an organizations row — organizations_slug_length requires length >= 1.
+    if (!canonicalSlug) return null;
+
+    const displayName = canonicalSlug
+      .split("-")
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ");
+
+    const { error: upsertError } = await client
+      .from("organizations")
+      .upsert({ slug: canonicalSlug, display_name: displayName }, { onConflict: "slug", ignoreDuplicates: true });
+    if (upsertError) throw upsertError;
+
+    const { data: org, error: selectError } = await client
+      .from("organizations")
+      .select("id")
+      .eq("slug", canonicalSlug)
+      .maybeSingle();
+    if (selectError) throw selectError;
+    if (!org) return null;
+
+    // Record the as-submitted spelling as an alias if it differs from the
+    // canonical slug, so a future submission with this exact spelling resolves
+    // on branch 1 of resolve_organization() rather than falling through to
+    // re-canonicalizing every time. Best-effort — never blocks the submission.
+    if (rawSlug !== canonicalSlug) {
+      await client
+        .from("organization_aliases")
+        .upsert(
+          { alias_slug: rawSlug, organization_id: org.id, alias_source: "observed" },
+          { onConflict: "alias_slug", ignoreDuplicates: true }
+        );
+    }
+
+    return org.id as string;
+  } catch (err) {
+    console.error("[api/submit] organization resolution failed, submitting with organization_id=null:", err);
+    return null;
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -80,6 +160,8 @@ export async function POST(req: NextRequest) {
     }
 
     const supabase = createAdminClient();
+    payload.organization_id = await resolveOrCreateOrganization(supabase as unknown as SupabaseClient, payload.company);
+
     const { error } = await (supabase.from("hiring_submissions") as any).insert([payload]);
 
     if (error) {
