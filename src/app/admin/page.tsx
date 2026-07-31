@@ -93,8 +93,52 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [multiplier, setMultiplier] = useState<number | null>(null);
+  const [multiplierInput, setMultiplierInput] = useState("");
+  const [savingMultiplier, setSavingMultiplier] = useState(false);
 
   const isReady = useMemo(() => secret.trim().length > 0, [secret]);
+
+  async function loadMultiplier() {
+    const res = await fetch("/api/admin/settings/external-multiplier", {
+      headers: { Authorization: `Bearer ${secret.trim()}` },
+    });
+    const body = (await res.json().catch(() => null)) as { value?: number } | null;
+    if (res.ok && typeof body?.value === "number") {
+      setMultiplier(body.value);
+      setMultiplierInput(body.value.toString());
+    }
+  }
+
+  async function saveMultiplier() {
+    const value = Number(multiplierInput);
+    if (!Number.isFinite(value) || value < 0 || value > 1) {
+      setError("Multiplier must be a number between 0 and 1.");
+      return;
+    }
+    setSavingMultiplier(true);
+    setError(null);
+    setMessage(null);
+    const res = await fetch("/api/admin/settings/external-multiplier", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${secret.trim()}` },
+      body: JSON.stringify({ value }),
+    });
+    const body = (await res.json().catch(() => null)) as { value?: number; error?: string } | null;
+    setSavingMultiplier(false);
+    if (!res.ok) {
+      setError(body?.error ?? "Failed to update multiplier.");
+      return;
+    }
+    const next = body?.value ?? value;
+    setMultiplier(next);
+    setMultiplierInput(next.toString());
+    setMessage(
+      next === 0
+        ? "External multiplier set to 0 — the product is now first-party only."
+        : `External multiplier set to ${next.toFixed(2)}.`
+    );
+  }
 
   async function loadTab(which: Tab) {
     if (!isReady) return;
@@ -123,6 +167,7 @@ export default function AdminPage() {
   async function handleUnlock(e: FormEvent) {
     e.preventDefault();
     await loadTab(tab);
+    void loadMultiplier();
   }
 
   function selectTab(next: Tab) {
@@ -200,6 +245,50 @@ export default function AdminPage() {
           </button>
         </div>
       </form>
+
+      {multiplier !== null && (
+        <div className="border border-rule bg-paper-sheet rounded-sm p-5 mb-6 shadow-sheet">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div>
+              <p className="text-[10px] font-mono uppercase tracking-wider text-ink-faint mb-1">Weighting policy</p>
+              <p className="text-sm text-ink">Global external multiplier</p>
+              <p className="text-xs text-ink-muted mt-0.5 max-w-md">
+                How much an <span className="text-ink-soft">approved</span> external report counts toward scores and
+                rankings, relative to a first-party submission (1.0). Set 0 for first-party only — the sunset switch.
+              </p>
+            </div>
+            <div className="flex items-end gap-2">
+              <div>
+                <label htmlFor="ext-mult" className="block text-[10px] font-mono uppercase tracking-wider text-ink-faint mb-1">
+                  Value 0–1
+                </label>
+                <input
+                  id="ext-mult"
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={multiplierInput}
+                  onChange={(e) => setMultiplierInput(e.target.value)}
+                  className="w-24 bg-paper border border-rule text-ink text-sm rounded-sm px-3 py-2 shadow-press focus:outline-none focus:border-accent transition-colors tnum"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={saveMultiplier}
+                disabled={savingMultiplier}
+                className="bg-accent text-paper-sheet text-sm font-medium px-4 py-2 rounded-sm hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {savingMultiplier ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
+          <p className="text-xs text-ink-muted mt-3">
+            Currently in effect: <span className="font-mono text-ink tnum">{multiplier.toFixed(2)}</span>
+            {multiplier === 0 && <span className="text-good"> · external evidence contributes nothing (sunset)</span>}
+          </p>
+        </div>
+      )}
 
       <div className="flex gap-2 mb-6 border-b border-rule">
         {(
