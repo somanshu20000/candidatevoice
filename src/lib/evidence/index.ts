@@ -14,6 +14,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadFirstPartyRows, loadExternalRows, resolveOrganizationId } from "./load";
 import { normalizeFirstParty, normalizeExternal } from "./normalize";
 import { describeBase } from "./aggregate";
+import { capSourceShare } from "./cap";
 import { getGlobalExternalMultiplier } from "@/lib/hiring-intel/settings";
 import type { EvidenceItem, EvidenceSet } from "./types";
 
@@ -33,10 +34,12 @@ export async function loadEvidence(client: SupabaseClient, companySlug: string):
     getGlobalExternalMultiplier(client),
   ]);
 
-  const items: EvidenceItem[] = [
+  // Cap any single external source's weighted share before anything reads the
+  // set, so the company page and the rankings agree on every number.
+  const items: EvidenceItem[] = capSourceShare([
     ...normalizeFirstParty(firstPartyRows),
     ...normalizeExternal(externalRows, globalMultiplier),
-  ];
+  ]);
 
   return {
     organizationId,
@@ -49,3 +52,11 @@ export async function loadEvidence(client: SupabaseClient, companySlug: string):
 export type { EvidenceItem, EvidenceSet, EvidenceBase, EvidenceFamily, MetricResult } from "./types";
 export { weightedRate, weightedMean, weightedShare, kishEffectiveN, describeBase } from "./aggregate";
 export { loadExternalDisplayRows, type ExternalReportDisplayRow } from "./load";
+export { capSourceShare, DEFAULT_MAX_SOURCE_SHARE } from "./cap";
+export {
+  loadCompanyAnalytics,
+  ghostingLeaderboard,
+  fastestHiring,
+  type CompanyAnalytics,
+  type AnalyticsResult,
+} from "./analytics";

@@ -74,6 +74,75 @@ export async function loadExternalRows(client: SupabaseClient, organizationId: s
   return (data ?? []) as unknown as RawExternalRow[];
 }
 
+/** Hard ceiling on rows pulled by the cross-company analytics loaders. At this
+ *  scale (hundreds of companies) the load-everything approach is fine per
+ *  ADR-0002 Part 8; the cap is a backstop so a data explosion degrades to a
+ *  partial, LOGGED result rather than an unbounded query. When it bites, the
+ *  rollup migration (Part 8) is overdue. */
+export const ANALYTICS_ROW_CAP = 50_000;
+
+/**
+ * All approved first-party rows across every company, for cross-company
+ * analytics (M6). Ordered so the cap, if it bites, drops the OLDEST evidence
+ * rather than an arbitrary slice.
+ */
+export async function loadAllFirstPartyRows(client: SupabaseClient): Promise<RawFirstPartyRow[]> {
+  const { data, error } = await client
+    .from("public_submissions")
+    .select(FIRST_PARTY_SELECT)
+    .not("organization_id", "is", null)
+    .order("reported_month", { ascending: false })
+    .limit(ANALYTICS_ROW_CAP);
+  if (error) throw new Error(`loadAllFirstPartyRows: ${error.message}`);
+  const rows = (data ?? []) as unknown as RawFirstPartyRow[];
+  if (rows.length === ANALYTICS_ROW_CAP) {
+    console.warn(`[evidence/analytics] first-party rows hit the ${ANALYTICS_ROW_CAP} cap — rankings are partial; the rollup migration is overdue.`);
+  }
+  return rows;
+}
+
+export async function loadAllExternalRows(client: SupabaseClient): Promise<RawExternalRow[]> {
+  const { data, error } = await client
+    .from("public_external_reports")
+    .select(EXTERNAL_SELECT)
+    .not("organization_id", "is", null)
+    .order("reported_month", { ascending: false })
+    .limit(ANALYTICS_ROW_CAP);
+  if (error) throw new Error(`loadAllExternalRows: ${error.message}`);
+  const rows = (data ?? []) as unknown as RawExternalRow[];
+  if (rows.length === ANALYTICS_ROW_CAP) {
+    console.warn(`[evidence/analytics] external rows hit the ${ANALYTICS_ROW_CAP} cap — rankings are partial; the rollup migration is overdue.`);
+  }
+  return rows;
+}
+
+export interface OrganizationRow {
+  id: string;
+  slug: string;
+  displayName: string;
+}
+
+/**
+ * Resolve a set of organization ids to their slug + display name for
+ * rendering ranking rows. Chunked to stay under URL length limits on the
+ * `in` filter. Returns whatever it can; a missing org just won't be linkable.
+ */
+export async function loadOrganizationsByIds(client: SupabaseClient, ids: string[]): Promise<OrganizationRow[]> {
+  const unique = [...new Set(ids)];
+  const CHUNK = 200;
+  const out: OrganizationRow[] = [];
+  for (let i = 0; i < unique.length; i += CHUNK) {
+    const chunk = unique.slice(i, i + CHUNK);
+    const { data, error } = await client.from("organizations").select("id, slug, display_name").in("id", chunk);
+    if (error) continue; // best-effort — a chunk failure just costs those names
+    for (const row of data ?? []) {
+      const r = row as Record<string, unknown>;
+      out.push({ id: String(r.id), slug: String(r.slug), displayName: String(r.display_name ?? r.slug) });
+    }
+  }
+  return out;
+}
+
 /**
  * Resolve a company slug to its organization id, exactly as
  * src/lib/company-intelligence/read.ts does for the same reason: the caller

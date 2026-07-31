@@ -24,6 +24,12 @@ export default function Navbar() {
             Browse
           </Link>
           <Link
+            href="/analytics"
+            className="text-sm text-ink-muted hover:text-ink transition-colors"
+          >
+            Analytics
+          </Link>
+          <Link
             href="/submit"
             className="text-sm bg-accent text-paper-sheet font-medium px-4 py-2 rounded-sm hover:bg-accent-hover transition-colors"
           >
