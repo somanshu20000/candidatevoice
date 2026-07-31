@@ -13,9 +13,17 @@ import {
 import { sanitizeAndTruncate, FIELD_LIMITS } from "@/utils/sanitize";
 import { checkAndRecordRateLimit } from "@/lib/rate-limit";
 import { getClientIp } from "@/lib/client-ip";
+import { FACET_KEYS, EMOTION_KEYS, type FacetKey, type EmotionKey } from "@/lib/fingerprint/taxonomy";
 
 const MAX_SUBMISSIONS_PER_HOUR = 5;
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
+
+/** Absolute ceiling on how many facet ratings a single submission can carry.
+ *  The seeded taxonomy has 13 facets today; the cap is loose enough for any
+ *  reasonable UI to send everything a user could pick, tight enough that a
+ *  crafted payload cannot ask us to insert thousands of rows in one call. */
+const MAX_RATINGS_PER_SUBMISSION = 32;
+const MAX_EMOTIONS_PER_SUBMISSION = EMOTION_KEYS.length;
 
 type SubmissionInsert = Database["public"]["Tables"]["hiring_submissions"]["Insert"];
 
@@ -28,6 +36,55 @@ const VALID_LAST_INTERACTION_GAPS = ["0-7", "8-14", "15-30", "30+"];
 const VALID_CALL_DURATIONS = ["<2", "2-5", "5-15", "15+", "na"];
 const VALID_FIRST_INTERACTION_OUTCOMES = ["continued", "rejected_immediately", "na"];
 const VALID_REASONS = ["experience_mismatch", "skill_mismatch", "culture_fit", "no_reason", "other"];
+
+interface RatingInput { facet_key: FacetKey; rating: number }
+interface EmotionInput { emotion_key: EmotionKey }
+
+/**
+ * Validate + de-dupe the ratings array. The DB has both a FK on facet_key
+ * and a composite PK (submission_id, facet_key), so an invalid or duplicate
+ * facet would abort the whole transaction — including the submission row.
+ * Better to reject the request cleanly here with a specific error than to
+ * lose the submission over a UI bug. Returns the sanitized array or a
+ * message describing exactly what was rejected.
+ */
+function validateRatings(raw: unknown): { ok: true; value: RatingInput[] } | { ok: false; error: string } {
+  if (raw === undefined || raw === null) return { ok: true, value: [] };
+  if (!Array.isArray(raw)) return { ok: false, error: "ratings must be an array" };
+  if (raw.length > MAX_RATINGS_PER_SUBMISSION) return { ok: false, error: `too many ratings (max ${MAX_RATINGS_PER_SUBMISSION})` };
+  const seen = new Set<string>();
+  const out: RatingInput[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") return { ok: false, error: "each rating must be an object" };
+    const rec = item as { facet_key?: unknown; rating?: unknown };
+    const facet = typeof rec.facet_key === "string" ? rec.facet_key : "";
+    const rating = Number(rec.rating);
+    if (!(FACET_KEYS as readonly string[]).includes(facet)) return { ok: false, error: `unknown facet_key: ${facet}` };
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) return { ok: false, error: `rating out of range: ${rec.rating}` };
+    if (seen.has(facet)) return { ok: false, error: `duplicate facet_key: ${facet}` };
+    seen.add(facet);
+    out.push({ facet_key: facet as FacetKey, rating });
+  }
+  return { ok: true, value: out };
+}
+
+function validateEmotions(raw: unknown): { ok: true; value: EmotionInput[] } | { ok: false; error: string } {
+  if (raw === undefined || raw === null) return { ok: true, value: [] };
+  if (!Array.isArray(raw)) return { ok: false, error: "emotions must be an array" };
+  if (raw.length > MAX_EMOTIONS_PER_SUBMISSION) return { ok: false, error: `too many emotions (max ${MAX_EMOTIONS_PER_SUBMISSION})` };
+  const seen = new Set<string>();
+  const out: EmotionInput[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") return { ok: false, error: "each emotion must be an object" };
+    const key = (item as { emotion_key?: unknown }).emotion_key;
+    const emo = typeof key === "string" ? key : "";
+    if (!(EMOTION_KEYS as readonly string[]).includes(emo)) return { ok: false, error: `unknown emotion_key: ${emo}` };
+    if (seen.has(emo)) return { ok: false, error: `duplicate emotion_key: ${emo}` };
+    seen.add(emo);
+    out.push({ emotion_key: emo as EmotionKey });
+  }
+  return { ok: true, value: out };
+}
 
 /**
  * Resolve the submitted company slug to a canonical organization, creating one
@@ -124,7 +181,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const body = (await req.json()) as SubmissionInsert;
+    const body = (await req.json()) as SubmissionInsert & { ratings?: unknown; emotions?: unknown };
 
     // Server-side enum validation — reject anything not in the known set
     if (
@@ -138,6 +195,15 @@ export async function POST(req: NextRequest) {
       !VALID_REASONS.includes(String(body.reason ?? ""))
     ) {
       return NextResponse.json({ error: "Invalid field values." }, { status: 400 });
+    }
+
+    const ratingsValidation = validateRatings(body.ratings);
+    if (!ratingsValidation.ok) {
+      return NextResponse.json({ error: ratingsValidation.error }, { status: 400 });
+    }
+    const emotionsValidation = validateEmotions(body.emotions);
+    if (!emotionsValidation.ok) {
+      return NextResponse.json({ error: emotionsValidation.error }, { status: 400 });
     }
 
     const payload: SubmissionInsert = {
@@ -162,7 +228,16 @@ export async function POST(req: NextRequest) {
     const supabase = createAdminClient();
     payload.organization_id = await resolveOrCreateOrganization(supabase as unknown as SupabaseClient, payload.company);
 
-    const { error } = await (supabase.from("hiring_submissions") as any).insert([payload]);
+    // Atomic write via migration 0013's RPC — submission + ratings + emotions
+    // in one transaction, so a Family B insert failure never leaves an
+    // orphaned Family A row behind (or vice versa). Cast because the RPC is
+    // not in the hand-authored Database type — same pattern as
+    // resolveOrCreateOrganization above.
+    const { error } = await (supabase as unknown as SupabaseClient).rpc("submit_hiring_report", {
+      p_submission: payload,
+      p_ratings: ratingsValidation.value,
+      p_emotions: emotionsValidation.value,
+    });
 
     if (error) {
       return NextResponse.json({ error: "Unable to submit right now." }, { status: 500 });
