@@ -58,6 +58,19 @@ const ACCOUNT_TABLES = ["profiles", "wishlist_items", "saved_comparisons"];
 
 const ACCOUNT_MIGRATION = "0004_accounts_and_wishlist.sql";
 
+const CANDIDATE_TABLES = ["candidate_profiles", "candidate_preferences"];
+
+const CANDIDATE_MIGRATION = "0015_candidate_intelligence.sql";
+
+/**
+ * Migrations that legitimately carry an identity column (an account's
+ * `user_id`, a candidate's `candidate_id`) yet must remain structurally
+ * disjoint from evidence. Each is exempted from the blanket identity-column
+ * scan below AND positively asserted here to reference no evidence table —
+ * the same guarantee, split across two checks (see 0004 / 0015 headers).
+ */
+const IDENTITY_MIGRATIONS = [ACCOUNT_MIGRATION, CANDIDATE_MIGRATION];
+
 describe("account migration never references evidence", () => {
   const sql = executableSql(ACCOUNT_MIGRATION);
 
@@ -79,6 +92,53 @@ describe("account migration never references evidence", () => {
   });
 });
 
+describe("candidate intelligence migration never references evidence", () => {
+  // The candidate preference vector stores priorities, never reports. It has an
+  // opaque candidate_id (internal to the candidate graph) but MUST have no path
+  // to a submission — otherwise setting preferences from the same browser that
+  // filed an anonymous report would de-anonymize it. This is the DB half of the
+  // guarantee; the FK check lives in the live-verification, but the parse check
+  // fails CI the moment 0015 so much as names an evidence table.
+  const sql = executableSql(CANDIDATE_MIGRATION);
+
+  it.each(EVIDENCE_TABLES)(
+    "does not reference %s in executable SQL",
+    (table) => {
+      expect(
+        sql.includes(table),
+        `${CANDIDATE_MIGRATION} references ${table}. A candidate profile must ` +
+          `never be joinable to a hiring report — that link is the whole thing ` +
+          `docs/adr-0001 §4.3 forbids.`
+      ).toBe(false);
+    }
+  );
+
+  it("does not reference auth.users — the candidate identity is anonymous, not an account", () => {
+    expect(
+      sql.includes("auth.users"),
+      `${CANDIDATE_MIGRATION} references auth.users. The candidate layer is ` +
+        `cookie-anonymous by design; tying it to an auth account would give it ` +
+        `an identity the evidence layer must never be able to correlate.`
+    ).toBe(false);
+  });
+
+  it("declares its own tables", () => {
+    for (const table of CANDIDATE_TABLES) {
+      expect(sql).toContain(table);
+    }
+  });
+
+  it("enables RLS on every candidate table with no policy (service-role only)", () => {
+    for (const table of CANDIDATE_TABLES) {
+      expect(sql).toContain(`alter table ${table} enable row level security`);
+    }
+    // No candidate row is reachable by anon/authenticated: access is mediated
+    // entirely by API routes holding the opaque cookie id.
+    const candidatePolicies = sql.match(/create policy/g) ?? [];
+    expect(candidatePolicies).toHaveLength(0);
+  });
+});
+
 describe("evidence never carries an identity column", () => {
   // Column names that would correlate reports back to a person, whether
   // directly or via a hash. Checked across every migration so a later one
@@ -96,8 +156,12 @@ describe("evidence never carries an identity column", () => {
     "email",
   ];
 
+  // Exempt the identity-bearing migrations: they legitimately contain user_id /
+  // candidate_id ON THEIR OWN tables. Their disjointness from evidence is
+  // guaranteed instead by the "never references evidence" blocks above — a
+  // strictly stronger check than substring-scanning for column names.
   const evidenceMigrations = allMigrationFiles().filter(
-    (f) => f !== ACCOUNT_MIGRATION
+    (f) => !IDENTITY_MIGRATIONS.includes(f)
   );
 
   it.each(evidenceMigrations)("%s adds no identity column", (file) => {
