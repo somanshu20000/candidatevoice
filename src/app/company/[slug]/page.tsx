@@ -23,6 +23,7 @@ import type { HqsResult, HqsTier } from "@/utils/hqs";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import CompanyOverview, { CompanyActions } from "@/components/CompanyOverview";
+import ProfileEnrichment from "@/components/ProfileEnrichment";
 import { loadCompanyProfile } from "@/lib/company-intelligence/read";
 import {
   COOKIE_NAME,
@@ -384,6 +385,13 @@ export default async function CompanyPage({ params, searchParams }: Props) {
           </div>
 
           <CompanyActions slug={companySlug} />
+
+          {/* Org resolved but has no metadata yet → try to fetch a provisional
+              public profile in the background, then refresh. Mounts ONLY when
+              profile !== null (the org exists, so the enrich route's resolve
+              guard will pass); an unresolved slug renders the empty state with
+              no trigger. Renders nothing itself — the page you see is instant. */}
+          {profile !== null && !profile.hasMetadata && <ProfileEnrichment slug={companySlug} />}
 
           {profile?.hasMetadata && <CompanyOverview profile={profile} />}
 

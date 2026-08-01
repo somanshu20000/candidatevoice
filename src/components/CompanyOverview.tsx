@@ -72,14 +72,31 @@ export default function CompanyOverview({ profile }: { profile: CompanyProfileVi
     (a, b) => LINK_ORDER.indexOf(a.linkType) - LINK_ORDER.indexOf(b.linkType)
   );
 
+  // 'unverified' is the marker written by the on-demand enrichment path
+  // (src/lib/company-intelligence/enrich.ts) — a profile auto-fetched from
+  // public pages that no higher-trust source has confirmed. Say so plainly:
+  // a candidate should weight it differently from cross-checked/official data.
+  const isProvisional = profile.confidence === "unverified";
+
   return (
     <section className="border border-rule bg-paper-sheet rounded-sm shadow-sheet overflow-hidden mb-8">
       <header className="flex items-center justify-between px-6 py-3 border-b border-rule bg-paper-sunk/40">
         <h2 className="font-serif text-lg text-ink">Company facts</h2>
-        <span className="text-[10px] font-mono uppercase tracking-wider text-ink-muted border border-rule px-2 py-0.5 rounded-sm">
-          Imported metadata
+        <span
+          className={`text-[10px] font-mono uppercase tracking-wider border px-2 py-0.5 rounded-sm ${
+            isProvisional ? "text-warn border-[#E3D4AE] bg-[#F4EEDD]" : "text-ink-muted border-rule"
+          }`}
+        >
+          {isProvisional ? "Provisional" : "Imported metadata"}
         </span>
       </header>
+
+      {isProvisional && (
+        <p className="px-6 pt-4 text-[11px] text-ink-faint leading-relaxed">
+          Auto-fetched from public sources when this page was first opened, and
+          not yet verified. Treat as a starting point, not a confirmed record.
+        </p>
+      )}
 
       <div className="p-6">
         {profile.description && (

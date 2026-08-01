@@ -38,6 +38,7 @@ import { createHash } from "crypto";
 import { dirname, resolve as resolvePath } from "path";
 import { parseCsv } from "../src/lib/company-intelligence/csv";
 import { runImport } from "../src/lib/company-intelligence/importer";
+import { passthrough } from "../src/lib/company-intelligence/enrich";
 import { createSupabaseCompanyStore } from "../src/lib/company-intelligence/store";
 import {
   resolveVerifiedCompanyEntity,
@@ -97,21 +98,8 @@ const SOURCE_ORDER: { key: string; adapter: SourceAdapter; confidence: MetadataC
   { key: "website_meta", adapter: websiteMetaAdapter, confidence: "official" },
 ];
 
-/**
- * Wrap an adapter so it returns records already fetched. Keeps the real
- * adapter's key and permitsRedistribution flag, so runImport's licence gate and
- * provenance attribution behave identically to a live import.
- */
-function passthrough(base: SourceAdapter, records: RawCompanyRecord[]): SourceAdapter {
-  return {
-    key: base.key,
-    displayName: base.displayName,
-    permitsRedistribution: base.permitsRedistribution,
-    async load() {
-      return records;
-    },
-  };
-}
+// passthrough() now lives in src/lib/company-intelligence/enrich.ts so this
+// script and the on-demand route share one definition.
 
 // --- Enrichment -------------------------------------------------------------
 
