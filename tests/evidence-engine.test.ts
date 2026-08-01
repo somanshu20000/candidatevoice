@@ -41,6 +41,7 @@ function evidenceItem(fields: Partial<EvidenceItem> & Pick<EvidenceItem, "id" | 
     paymentFlag: null,
     callDuration: null,
     firstInteractionOutcome: null,
+    applicationChannel: null,
     extractionConfidence: null,
     ...fields,
   };
@@ -59,6 +60,7 @@ function rawFirstPartyRow(fields: Partial<RawFirstPartyRow> & Pick<RawFirstParty
     reason: null,
     payment_flag: null,
     reported_month: null,
+    application_channel: null,
     ...fields,
   };
 }
@@ -360,6 +362,17 @@ describe("normalizeFirstParty", () => {
     expect(item.stage).toBe("technical");
     expect(item.outcome).toBe("offer");
   });
+
+  it("maps application_channel, first-party's basis for cohort filtering (migration 0014)", () => {
+    const [valid] = normalizeFirstParty([rawFirstPartyRow({ id: "a", application_channel: "referral" })]);
+    expect(valid.applicationChannel).toBe("referral");
+
+    const [missing] = normalizeFirstParty([rawFirstPartyRow({ id: "b", application_channel: null })]);
+    expect(missing.applicationChannel).toBeNull();
+
+    const [garbage] = normalizeFirstParty([rawFirstPartyRow({ id: "c", application_channel: "smoke_signal" })]);
+    expect(garbage.applicationChannel).toBeNull();
+  });
 });
 
 describe("normalizeExternal", () => {
@@ -413,6 +426,10 @@ describe("normalizeExternal", () => {
     const [item] = normalizeExternal([rawExternalRow({ id: "a" })], 0.35);
     expect(item.callDuration).toBeNull();
     expect(item.firstInteractionOutcome).toBeNull();
+    // applicationChannel (migration 0014) joins the same asymmetry class —
+    // a third-party forum post cannot structurally know how the poster
+    // applied, so external_reports never gets this column at all.
+    expect(item.applicationChannel).toBeNull();
   });
 });
 

@@ -30,6 +30,8 @@ export interface RawFirstPartyRow {
   reason: string | null;
   payment_flag: boolean | null;
   reported_month: string | null;
+  /** First-party only (migration 0014) — no column on external_reports. */
+  application_channel: string | null;
 }
 
 export interface RawExternalRow {
@@ -50,7 +52,8 @@ export interface RawExternalRow {
 
 const FIRST_PARTY_SELECT =
   "id, organization_id, experience_bucket, stage, outcome, response_time_bucket, " +
-  "last_interaction_gap, call_duration, first_interaction_outcome, reason, payment_flag, reported_month";
+  "last_interaction_gap, call_duration, first_interaction_outcome, reason, payment_flag, reported_month, " +
+  "application_channel";
 
 const EXTERNAL_SELECT =
   "id, organization_id, source_key, trust_weight, experience_bucket, stage, outcome, " +

@@ -6,6 +6,14 @@ export type LastInteractionGap = "0-7" | "8-14" | "15-30" | "30+";
 export type CallDuration = "<2" | "2-5" | "5-15" | "15+" | "na";
 export type FirstInteractionOutcome = "continued" | "rejected_immediately" | "na";
 /**
+ * How the candidate applied. First-party only (migration 0014) — a
+ * third-party forum post cannot structurally know this, so external_reports
+ * has no equivalent column. Optional at the form; a missing value just
+ * excludes that report from channel-scoped cohort views, like any other
+ * unanswered field.
+ */
+export type ApplicationChannel = "referral" | "recruiter_outreach" | "job_board" | "company_website" | "other";
+/**
  * The furthest stage a submission reached, as shown on a card.
  *
  * These describe a STAGE, never an outcome. `final` means "reached the final
@@ -58,6 +66,8 @@ export interface HiringSubmission {
   organization_id?: string | null;
   /** Always 'candidate' today — see migration 0000. */
   reporter_type?: string;
+  /** Optional — see ApplicationChannel. Migration 0014. */
+  application_channel?: ApplicationChannel | null;
 }
 
 export type Database = {

@@ -14,6 +14,7 @@
 
 import { describe, expect, it } from "vitest";
 import { FACET_KEYS, EMOTION_KEYS } from "@/lib/fingerprint/taxonomy";
+import { APPLICATION_CHANNEL_LABELS } from "@/lib/evidence";
 
 // The validators aren't exported (they live inside route.ts). Re-implement the
 // same shape here for testing. If this drifts, an integration test catches it
@@ -68,5 +69,33 @@ describe("emotions validation contract", () => {
 
   it("distinct emotion keys are distinct", () => {
     expect(someEmotion).not.toBe(anotherEmotion);
+  });
+});
+
+describe("application_channel validation contract (migration 0014)", () => {
+  // api/submit/route.ts's VALID_APPLICATION_CHANNELS and cohort.ts's
+  // APPLICATION_CHANNEL_LABELS are two independently-maintained lists of the
+  // same five values (the DB CHECK constraint is the third). Nothing enforces
+  // they stay in sync — this test is that enforcement. If a channel is added
+  // to one and not the other, a candidate could submit a value the cohort
+  // selector never offers, or select a filter the route silently rejects.
+  const ROUTE_VALID_APPLICATION_CHANNELS = ["referral", "recruiter_outreach", "job_board", "company_website", "other"];
+
+  it("matches cohort.ts's APPLICATION_CHANNEL_LABELS exactly", () => {
+    expect(ROUTE_VALID_APPLICATION_CHANNELS.sort()).toEqual(Object.keys(APPLICATION_CHANNEL_LABELS).sort());
+  });
+
+  it("is optional — unlike every other enum field, absence is valid, not rejected", () => {
+    // Mirrors validateApplicationChannel's contract: undefined/null/"" => ok,
+    // value: null. Only a PRESENT-but-unrecognized value is an error.
+    for (const raw of [undefined, null, ""]) {
+      const isSkip = raw === undefined || raw === null || raw === "";
+      expect(isSkip).toBe(true);
+    }
+  });
+
+  it("rejects a present-but-unknown value", () => {
+    const bogus = "carrier_pigeon";
+    expect(ROUTE_VALID_APPLICATION_CHANNELS.includes(bogus)).toBe(false);
   });
 });

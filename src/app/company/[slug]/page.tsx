@@ -2,8 +2,18 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import { loadEvidence, loadExternalDisplayRows } from "@/lib/evidence";
-import type { EvidenceItem, ExternalReportDisplayRow } from "@/lib/evidence";
+import {
+  loadEvidence,
+  loadExternalDisplayRows,
+  scopeToCohort,
+  isEmptyCohort,
+  describeCohort,
+  parseExperienceBucket,
+  parseApplicationChannel,
+  EXPERIENCE_BUCKET_LABELS,
+  APPLICATION_CHANNEL_LABELS,
+} from "@/lib/evidence";
+import type { EvidenceItem, ExternalReportDisplayRow, CohortFilter } from "@/lib/evidence";
 import { buildBehaviouralFingerprint, BEHAVIOURAL_DIMENSION_LABELS } from "@/lib/fingerprint/behavioural";
 import type { BehaviouralDimensionScore } from "@/lib/fingerprint/behavioural";
 import { buildForecast, hasAnyForecast } from "@/lib/fingerprint/forecast";
@@ -22,7 +32,12 @@ import {
 
 interface Props {
   params: { slug: string };
+  /** Cohort filter, read from ?experience=&channel= — see CohortSelector below. */
+  searchParams?: { experience?: string; channel?: string };
 }
+
+const COHORT_SELECT_CLS =
+  "w-full bg-paper border border-rule text-ink-soft text-sm rounded-sm px-3 py-2 shadow-press focus:outline-none focus:border-accent transition-colors";
 
 const STAGE_LABELS: Record<string, string> = {
   applied: "Applied", screening: "Screening", technical: "Technical",
@@ -183,17 +198,31 @@ const FORECAST_TONE_CLS: Record<ForecastTone, string> = {
  * the thing we withhold: a visitor who has not interviewed anywhere yet has
  * nothing to trade, and a link nobody can read is a link nobody shares.
  */
-function ForecastPanel({ lines, rawTotal, tier }: { lines: ForecastLine[]; rawTotal: number; tier: HqsTier }) {
+function ForecastPanel({
+  lines,
+  rawTotal,
+  tier,
+  title = "What to expect if you apply",
+  subtitle,
+}: {
+  lines: ForecastLine[];
+  rawTotal: number;
+  tier: HqsTier;
+  title?: string;
+  /** Overrides the default "what happened to N people" line — used by the
+   *  cohort panel to name the cohort instead of the whole company. */
+  subtitle?: string;
+}) {
   return (
     <section className="border border-rule bg-paper-sheet rounded-sm p-6 sm:p-8 mb-8 shadow-sheet">
       <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
-        <h2 className="font-serif text-xl sm:text-2xl text-ink">What to expect if you apply</h2>
+        <h2 className="font-serif text-xl sm:text-2xl text-ink">{title}</h2>
         <span className="text-[10px] font-mono uppercase tracking-wider text-ink-muted">
           {tier} confidence
         </span>
       </div>
       <p className="text-xs text-ink-muted mb-6">
-        What actually happened to {rawTotal} {rawTotal === 1 ? "person" : "people"} who reported on this company.
+        {subtitle ?? `What actually happened to ${rawTotal} ${rawTotal === 1 ? "person" : "people"} who reported on this company.`}
       </p>
 
       <div className="grid sm:grid-cols-2 gap-x-8">
@@ -220,6 +249,82 @@ function ForecastPanel({ lines, rawTotal, tier }: { lines: ForecastLine[]; rawTo
   );
 }
 
+/**
+ * The "Evidence Match" cohort selector — the honest alternative to an ATS
+ * score. No resume upload, no invented weights: the candidate names two true
+ * facts about themselves and sees the REAL forecast for reports matching
+ * both. A plain GET form — no client JS, the browser just re-navigates with
+ * query params, matching this page's server-component-first architecture.
+ */
+function CohortSelector({ companySlug, filter }: { companySlug: string; filter: CohortFilter }) {
+  const active = !isEmptyCohort(filter);
+  return (
+    <div className="border border-rule bg-paper-sheet rounded-sm p-5 sm:p-6 mb-8 shadow-sheet">
+      <h2 className="font-serif text-base sm:text-lg text-ink mb-1">Compare to reports like you</h2>
+      <p className="text-xs text-ink-muted mb-4">
+        See the forecast for people with your experience and application channel — from real reports, not a resume score.
+      </p>
+      <form method="get" className="flex flex-wrap items-end gap-3">
+        <div className="flex-1 min-w-[140px]">
+          <label htmlFor="experience-filter" className="block text-[10px] font-mono uppercase tracking-wider text-ink-muted mb-1.5">
+            Your experience
+          </label>
+          {/* `key` is load-bearing, not cosmetic. These selects are uncontrolled
+              (defaultValue), and "Clear" is a next/link to the SAME route — only
+              searchParams change, so React reconciles these DOM nodes in place
+              rather than remounting, and defaultValue is only ever applied at
+              mount. Without a key tied to the filter value the dropdown keeps
+              showing the cleared selection, and the next Compare silently
+              resubmits the stale cohort. */}
+          <select
+            key={`experience-${filter.experienceBucket ?? "none"}`}
+            id="experience-filter"
+            name="experience"
+            defaultValue={filter.experienceBucket ?? ""}
+            className={COHORT_SELECT_CLS}
+          >
+            <option value="">Everyone</option>
+            {Object.entries(EXPERIENCE_BUCKET_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+        </div>
+        <div className="flex-1 min-w-[160px]">
+          <label htmlFor="channel-filter" className="block text-[10px] font-mono uppercase tracking-wider text-ink-muted mb-1.5">
+            How you&apos;d apply
+          </label>
+          <select
+            key={`channel-${filter.applicationChannel ?? "none"}`}
+            id="channel-filter"
+            name="channel"
+            defaultValue={filter.applicationChannel ?? ""}
+            className={COHORT_SELECT_CLS}
+          >
+            <option value="">Any</option>
+            {Object.entries(APPLICATION_CHANNEL_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+        </div>
+        <button
+          type="submit"
+          className="bg-accent text-paper-sheet px-4 py-2 text-sm font-medium rounded-sm hover:bg-accent-hover transition-colors shrink-0"
+        >
+          Compare →
+        </button>
+        {active && (
+          <Link
+            href={`/company/${encodeURIComponent(companySlug)}`}
+            className="text-xs text-ink-muted hover:text-ink underline shrink-0 pb-2.5"
+          >
+            Clear
+          </Link>
+        )}
+      </form>
+    </div>
+  );
+}
+
 function HqsHeadline({ hqs, rawTotal, effectiveN }: { hqs: HqsResult; rawTotal: number; effectiveN: number }) {
   const lower = Math.round(hqs.interval.lower);
   const upper = Math.round(hqs.interval.upper);
@@ -235,8 +340,13 @@ function HqsHeadline({ hqs, rawTotal, effectiveN }: { hqs: HqsResult; rawTotal: 
   );
 }
 
-export default async function CompanyPage({ params }: Props) {
+export default async function CompanyPage({ params, searchParams }: Props) {
   const companySlug = normalizeCompanySlug(decodeURIComponent(params.slug));
+  const cohortFilter: CohortFilter = {
+    experienceBucket: parseExperienceBucket(searchParams?.experience),
+    applicationChannel: parseApplicationChannel(searchParams?.channel),
+  };
+  const cohortActive = !isEmptyCohort(cohortFilter);
   const companyName = companySlug.replace(/-/g, " ");
   const supabase = createClient();
   const cookieStore = cookies();
@@ -305,6 +415,17 @@ export default async function CompanyPage({ params }: Props) {
   const externalRaw = evidenceSet!.base.externalRaw;
   const firstPartyProportion = Math.round(evidenceSet!.base.firstPartyProportion * 100);
 
+  // Cohort scoping ("Evidence Match") — zero new formulas: scopeToCohort just
+  // re-runs describeBase on the filtered subset, so buildBehaviouralFingerprint
+  // and buildForecast are the SAME functions called on fewer items. Suppression
+  // and the sunset invariant fall out for free rather than needing separate handling.
+  const cohortSet = cohortActive ? scopeToCohort(evidenceSet!, cohortFilter) : null;
+  const cohortFingerprint = cohortSet ? buildBehaviouralFingerprint(cohortSet) : null;
+  const cohortForecastLines = cohortFingerprint ? buildForecast(cohortFingerprint, cohortSet!.items) : null;
+  const cohortForecastAvailable = cohortForecastLines ? hasAnyForecast(cohortForecastLines) : false;
+  const cohortHqs = cohortFingerprint ? computeHqs(cohortFingerprint) : null;
+  const cohortDescription = describeCohort(cohortFilter);
+
   // Display rows for the External section — only fetched when external
   // evidence actually exists, so the common all-first-party company pays
   // nothing. Failures return [] (the reader swallows them), never blocking.
@@ -333,11 +454,38 @@ export default async function CompanyPage({ params }: Props) {
           <ForecastPanel lines={forecastLines} rawTotal={rawTotal} tier={hqs?.tier ?? "insufficient"} />
         )}
 
-        {/* HQS headline — the one-number summary of the forecast above. */}
+        {/* Evidence Match: the honest alternative to an ATS score. Public, same
+            as the forecast above — a candidate deciding whether to apply has
+            nothing to trade yet, so this cannot sit behind the unlock gate. */}
+        <CohortSelector companySlug={companySlug} filter={cohortFilter} />
+        {cohortActive && cohortForecastLines && (
+          cohortForecastAvailable ? (
+            <ForecastPanel
+              lines={cohortForecastLines}
+              rawTotal={cohortSet!.base.rawTotal}
+              tier={cohortHqs?.tier ?? "insufficient"}
+              title="What to expect — people like you"
+              subtitle={`What happened to ${cohortSet!.base.rawTotal} ${cohortSet!.base.rawTotal === 1 ? "person" : "people"} matching ${cohortDescription}.`}
+            />
+          ) : (
+            <div className="border border-dashed border-rule-strong bg-paper-sheet rounded-sm p-8 text-center mb-8">
+              <p className="text-sm text-ink-soft mb-1">No reports match {cohortDescription} yet.</p>
+              <p className="text-xs text-ink-muted">Try a broader filter, or check back as more reports come in.</p>
+            </div>
+          )
+        )}
+
+        {/* HQS headline. ALWAYS company-wide: `hqs` is computed from the full
+            evidence set above, never from `cohortFingerprint`. When a cohort
+            filter is active the panel directly above IS cohort-scoped, so this
+            card must say plainly that it is not — otherwise a visitor reads a
+            company-wide score as describing their cohort. Both numbers stay
+            visible; only the scope is disambiguated. */}
         <div className={`border ${hqs ? hqsBorderColor(hqs.score) : "border-rule"} bg-paper-sheet rounded-sm p-6 sm:p-8 mb-8 shadow-sheet flex flex-wrap items-center justify-between gap-6`}>
           <div>
             <p className="text-[10px] font-mono uppercase tracking-wider text-ink-muted mb-2">
               Hiring Quality Score
+              {cohortActive && <span className="text-ink-faint"> · all reports</span>}
             </p>
             {hqs ? (
               <HqsHeadline hqs={hqs} rawTotal={rawTotal} effectiveN={effectiveN} />

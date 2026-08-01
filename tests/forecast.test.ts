@@ -27,6 +27,7 @@ function evidenceItem(fields: Partial<EvidenceItem> & Pick<EvidenceItem, "id" | 
     paymentFlag: null,
     callDuration: null,
     firstInteractionOutcome: null,
+    applicationChannel: null,
     extractionConfidence: null,
     ...fields,
   };

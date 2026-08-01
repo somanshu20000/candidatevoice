@@ -70,3 +70,14 @@ export {
   type RankedCompany,
   type SearchRankInputs,
 } from "./rank";
+export {
+  filterByCohort,
+  scopeToCohort,
+  isEmptyCohort,
+  describeCohort,
+  parseExperienceBucket,
+  parseApplicationChannel,
+  EXPERIENCE_BUCKET_LABELS,
+  APPLICATION_CHANNEL_LABELS,
+  type CohortFilter,
+} from "./cohort";

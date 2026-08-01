@@ -25,6 +25,7 @@ import type {
   LastInteractionGap,
   CallDuration,
   FirstInteractionOutcome,
+  ApplicationChannel,
 } from "@/types/index";
 
 export type EvidenceFamily = "first_party" | "external";
@@ -66,6 +67,10 @@ export interface EvidenceItem {
    */
   callDuration: CallDuration | null;
   firstInteractionOutcome: FirstInteractionOutcome | null;
+  /** How the candidate applied (migration 0014). Same asymmetry as the two
+   *  fields above: external_reports has no equivalent column. The basis of
+   *  cohort filtering in evidence/cohort.ts. */
+  applicationChannel: ApplicationChannel | null;
 
   /** External only; null for first-party (which has no extraction step). */
   extractionConfidence: number | null;

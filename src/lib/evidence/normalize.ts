@@ -12,6 +12,7 @@ import type {
   LastInteractionGap,
   CallDuration,
   FirstInteractionOutcome,
+  ApplicationChannel,
 } from "@/types/index";
 import type { EvidenceItem } from "./types";
 import type { RawFirstPartyRow, RawExternalRow } from "./load";
@@ -24,6 +25,7 @@ const RESPONSE_TIME_BUCKETS: readonly string[] = ["0-3", "4-7", "8-14", "15+"];
 const LAST_INTERACTION_GAPS: readonly string[] = ["0-7", "8-14", "15-30", "30+"];
 const CALL_DURATIONS: readonly string[] = ["<2", "2-5", "5-15", "15+", "na"];
 const FIRST_INTERACTION_OUTCOMES: readonly string[] = ["continued", "rejected_immediately", "na"];
+const APPLICATION_CHANNELS: readonly string[] = ["referral", "recruiter_outreach", "job_board", "company_website", "other"];
 
 /**
  * Narrow a raw string to its enum type, or null. The DB's own CHECK
@@ -68,6 +70,7 @@ export function normalizeFirstParty(rows: RawFirstPartyRow[]): EvidenceItem[] {
       paymentFlag: r.payment_flag,
       callDuration: asEnum<CallDuration>(r.call_duration, CALL_DURATIONS),
       firstInteractionOutcome: asEnum<FirstInteractionOutcome>(r.first_interaction_outcome, FIRST_INTERACTION_OUTCOMES),
+      applicationChannel: asEnum<ApplicationChannel>(r.application_channel, APPLICATION_CHANNELS),
       extractionConfidence: null, // first-party has no extraction step
     }));
 }
@@ -109,6 +112,7 @@ export function normalizeExternal(rows: RawExternalRow[], globalMultiplier: numb
         // no equivalent columns at all.
         callDuration: null,
         firstInteractionOutcome: null,
+        applicationChannel: null,
         extractionConfidence,
       };
     });

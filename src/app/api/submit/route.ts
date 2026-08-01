@@ -14,6 +14,7 @@ import { sanitizeAndTruncate, FIELD_LIMITS } from "@/utils/sanitize";
 import { checkAndRecordRateLimit } from "@/lib/rate-limit";
 import { getClientIp } from "@/lib/client-ip";
 import { FACET_KEYS, EMOTION_KEYS, type FacetKey, type EmotionKey } from "@/lib/fingerprint/taxonomy";
+import type { ApplicationChannel } from "@/types/index";
 
 const MAX_SUBMISSIONS_PER_HOUR = 5;
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
@@ -36,6 +37,7 @@ const VALID_LAST_INTERACTION_GAPS = ["0-7", "8-14", "15-30", "30+"];
 const VALID_CALL_DURATIONS = ["<2", "2-5", "5-15", "15+", "na"];
 const VALID_FIRST_INTERACTION_OUTCOMES = ["continued", "rejected_immediately", "na"];
 const VALID_REASONS = ["experience_mismatch", "skill_mismatch", "culture_fit", "no_reason", "other"];
+const VALID_APPLICATION_CHANNELS = ["referral", "recruiter_outreach", "job_board", "company_website", "other"];
 
 interface RatingInput { facet_key: FacetKey; rating: number }
 interface EmotionInput { emotion_key: EmotionKey }
@@ -84,6 +86,20 @@ function validateEmotions(raw: unknown): { ok: true; value: EmotionInput[] } | {
     out.push({ emotion_key: emo as EmotionKey });
   }
   return { ok: true, value: out };
+}
+
+/**
+ * Optional field — unlike the enum allowlist check above, an ABSENT or empty
+ * value is valid (the candidate skipped it). Only a PRESENT-but-unrecognized
+ * value is rejected, so a form bug or tampered payload can't silently store
+ * garbage into a field the cohort filter later trusts as an enum.
+ */
+function validateApplicationChannel(raw: unknown): { ok: true; value: ApplicationChannel | null } | { ok: false; error: string } {
+  if (raw === undefined || raw === null || raw === "") return { ok: true, value: null };
+  if (typeof raw !== "string" || !VALID_APPLICATION_CHANNELS.includes(raw)) {
+    return { ok: false, error: `unknown application_channel: ${String(raw)}` };
+  }
+  return { ok: true, value: raw as ApplicationChannel };
 }
 
 /**
@@ -205,11 +221,16 @@ export async function POST(req: NextRequest) {
     if (!emotionsValidation.ok) {
       return NextResponse.json({ error: emotionsValidation.error }, { status: 400 });
     }
+    const channelValidation = validateApplicationChannel(body.application_channel);
+    if (!channelValidation.ok) {
+      return NextResponse.json({ error: channelValidation.error }, { status: 400 });
+    }
 
     const payload: SubmissionInsert = {
       company: normalizeCompanySlug(sanitizeAndTruncate(String(body.company ?? ""), 100)),
       role: sanitizeAndTruncate(String(body.role ?? ""), FIELD_LIMITS.ROLE_TITLE),
       experience_bucket: body.experience_bucket,
+      application_channel: channelValidation.value,
       stage: body.stage,
       outcome: body.outcome,
       response_time_bucket: body.response_time_bucket,

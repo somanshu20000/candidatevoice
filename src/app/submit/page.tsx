@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
-import type { HiringSubmission } from "@/types/index";
+import type { HiringSubmission, ApplicationChannel } from "@/types/index";
 import { AlertTriangle, Check } from "lucide-react";
 import { normalizeCompanySlug } from "@/lib/company-slug";
 
@@ -21,6 +21,10 @@ interface FormState {
   company: string;
   role: string;
   experience_bucket: ExperienceBucket | "";
+  /** Optional — unlike every other field, skipping this must not block submission.
+   *  It only powers cohort filtering on the company page; adding friction here
+   *  fights the platform's actual bottleneck (evidence acquisition). */
+  application_channel: ApplicationChannel | "";
   stage: Stage | "";
   outcome: Outcome | "";
   response_time_bucket: ResponseTimeBucket | "";
@@ -52,7 +56,7 @@ const WARNING = (
 );
 
 const EMPTY: FormState = {
-  company: "", role: "", experience_bucket: "",
+  company: "", role: "", experience_bucket: "", application_channel: "",
   stage: "", outcome: "",
   response_time_bucket: "", last_interaction_gap: "",
   call_duration: "", first_interaction_outcome: "",
@@ -101,6 +105,7 @@ export default function SubmitPage() {
       company: normalizedCompany,
       role: form.role.trim(),
       experience_bucket: form.experience_bucket as ExperienceBucket,
+      application_channel: form.application_channel === "" ? null : form.application_channel,
       stage: form.stage as Stage,
       outcome: form.outcome as Outcome,
       response_time_bucket: form.response_time_bucket as ResponseTimeBucket,
@@ -268,6 +273,27 @@ export default function SubmitPage() {
                   <option value="5-8">5–8 years</option>
                   <option value="8+">8+ years</option>
                 </select>
+              </div>
+              <div>
+                <label htmlFor="application-channel" className={LABEL_CLS}>
+                  How did you apply? <span className="text-ink-faint font-normal">(optional)</span>
+                </label>
+                <select
+                  id="application-channel"
+                  value={form.application_channel}
+                  onChange={(e) => set("application_channel", e.target.value as ApplicationChannel | "")}
+                  className={SELECT_CLS}
+                >
+                  <option value="">Prefer not to say</option>
+                  <option value="referral">Referral</option>
+                  <option value="recruiter_outreach">Recruiter reached out to me</option>
+                  <option value="job_board">Job board</option>
+                  <option value="company_website">Company website</option>
+                  <option value="other">Other</option>
+                </select>
+                <p className="text-xs text-ink-faint mt-1.5">
+                  Lets other candidates filter results to people who applied the same way.
+                </p>
               </div>
             </div>
           )}
