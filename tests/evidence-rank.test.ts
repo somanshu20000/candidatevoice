@@ -33,12 +33,14 @@ function hqs(score: number): HqsResult {
 }
 
 function company(id: string, score: number | null, effectiveN: number, latestMonth: string | null): CompanyAnalytics {
+  const b = base(effectiveN, latestMonth);
   return {
     organizationId: id, slug: id, displayName: id,
     hqs: score === null ? null : hqs(score),
-    // ghosting/responseSpeed unused by ranking — minimal stubs.
+    // ghosting/responseSpeed/fingerprint unused by rankCompanies — minimal stubs.
     ghosting: null as never, responseSpeed: null as never,
-    base: base(effectiveN, latestMonth), ranked: score !== null,
+    fingerprint: { dimensions: [], base: b, globalMultiplier: 0 },
+    base: b, ranked: score !== null,
   };
 }
 

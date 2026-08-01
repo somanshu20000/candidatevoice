@@ -18,6 +18,9 @@ import { buildBehaviouralFingerprint, BEHAVIOURAL_DIMENSION_LABELS } from "@/lib
 import type { BehaviouralDimensionScore } from "@/lib/fingerprint/behavioural";
 import { buildForecast, hasAnyForecast } from "@/lib/fingerprint/forecast";
 import type { ForecastLine, ForecastTone } from "@/lib/fingerprint/forecast";
+import { computeFit, explainFit } from "@/lib/advisor";
+import { readCandidateVector, hasPreferences } from "@/lib/candidate/server";
+import FitForYou from "@/components/advisor/FitForYou";
 import { computeHqs, HQS_WEIGHTS, HQS_MIN_EFFECTIVE_N } from "@/utils/hqs";
 import type { HqsResult, HqsTier } from "@/utils/hqs";
 import Navbar from "@/components/Navbar";
@@ -419,6 +422,13 @@ export default async function CompanyPage({ params, searchParams }: Props) {
   const hqs = computeHqs(fingerprint);
   const forecastLines = buildForecast(fingerprint, items);
   const forecastAvailable = hasAnyForecast(forecastLines);
+
+  // "Fit for you" — only when the visitor has saved priorities. Pure over the
+  // fingerprint already built above, so a visitor with a preference vector pays
+  // nothing extra in DB reads; one without pays nothing at all.
+  const candidateVector = await readCandidateVector();
+  const fitForYou = hasPreferences(candidateVector) ? computeFit(candidateVector, fingerprint) : null;
+  const fitExplanation = fitForYou ? explainFit(fitForYou, displayName) : null;
   const firstPartyRaw = evidenceSet!.base.firstPartyRaw;
   const externalRaw = evidenceSet!.base.externalRaw;
   const firstPartyProportion = Math.round(evidenceSet!.base.firstPartyProportion * 100);
@@ -460,6 +470,11 @@ export default async function CompanyPage({ params, searchParams }: Props) {
         {/* THE ANSWER, first and unlocked. Everything below is supporting evidence. */}
         {forecastAvailable && (
           <ForecastPanel lines={forecastLines} rawTotal={rawTotal} tier={hqs?.tier ?? "insufficient"} />
+        )}
+
+        {/* Personalised answer, when the visitor has set priorities. */}
+        {fitForYou && fitExplanation && (
+          <FitForYou fit={fitForYou} explanation={fitExplanation} displayName={displayName} />
         )}
 
         {/* Evidence Match: the honest alternative to an ATS score. Public, same

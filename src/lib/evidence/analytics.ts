@@ -27,7 +27,7 @@ import { describeBase } from "./aggregate";
 import { getGlobalExternalMultiplier } from "@/lib/hiring-intel/settings";
 import type { EvidenceItem, EvidenceBase } from "./types";
 import { buildBehaviouralFingerprint } from "@/lib/fingerprint/behavioural";
-import type { BehaviouralDimensionScore } from "@/lib/fingerprint/behavioural";
+import type { BehaviouralDimensionScore, BehaviouralFingerprint } from "@/lib/fingerprint/behavioural";
 import { computeHqs } from "@/utils/hqs";
 import type { HqsResult } from "@/utils/hqs";
 
@@ -40,6 +40,10 @@ export interface CompanyAnalytics {
   hqs: HqsResult | null;
   ghosting: BehaviouralDimensionScore;
   responseSpeed: BehaviouralDimensionScore;
+  /** The full behavioural fingerprint — carried so consumers that need every
+   *  dimension (the candidate advisor's fit ranking, the market baseline) reuse
+   *  this one bulk load instead of re-reading every company. */
+  fingerprint: BehaviouralFingerprint;
   base: EvidenceBase;
   /** True when HQS rendered (effectiveN ≥ gate) — only ranked companies. */
   ranked: boolean;
@@ -101,6 +105,7 @@ export async function loadCompanyAnalytics(client: SupabaseClient): Promise<Anal
       hqs,
       ghosting: fingerprint.dimensions.find((d) => d.key === "ghosting")!,
       responseSpeed: fingerprint.dimensions.find((d) => d.key === "response_speed")!,
+      fingerprint,
       base: fingerprint.base,
       ranked: hqs !== null,
     });
