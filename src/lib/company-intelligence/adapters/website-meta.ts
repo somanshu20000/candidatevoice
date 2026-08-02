@@ -29,8 +29,26 @@
  *     a typed RobotsDisallowedError so the caller can report "skipped:
  *     robots.txt" instead of silently recording "no data".
  *
- * Only <meta> tags in the document head are read. No body content, no article
- * text, no scraping of anything beyond the site's own self-description.
+ * Only <meta> tags in the document head are read for the description. No body
+ * content, no article text, no scraping of anything beyond the site's own
+ * self-description.
+ *
+ * The one exception: findCareersLink scans the SAME already-fetched,
+ * already-capped HTML for an anchor whose href or text suggests a careers
+ * page — no second fetch, no extra network cost. SAME-ORIGIN ONLY (host must
+ * equal, or be a subdomain of, the site being fetched, www-insensitive): a
+ * hostile page could otherwise embed `<a href="https://evil.example">Careers</a>`
+ * and get an attacker-controlled URL recorded as this company's careers link.
+ *
+ * KNOWN LIMITATION, live-verified rather than assumed: this finds a careers
+ * link only when it appears as plain server-rendered <a> markup within the
+ * first HEAD_SCAN_LIMIT bytes — it does not execute JavaScript (no headless
+ * browser, by design — the same reason PixelRAG was rejected for company
+ * enrichment). Confirmed working against real sites with server-rendered nav
+ * (zerodha.com correctly resolves to https://careers.zerodha.com/); confirmed
+ * silently absent-not-wrong on JS-hydrated marketing sites (stripe.com,
+ * github.com, basecamp.com), where the nav simply isn't in the initial HTML.
+ * A miss here is exactly that — a miss, never a fabricated link.
  */
 
 import type { RawCompanyRecord, SourceAdapter } from "../types";
@@ -64,10 +82,58 @@ function readMetaTag(html: string, key: string): string | null {
   return null;
 }
 
+function normalizeHost(host: string): string {
+  return host.replace(/^www\./i, "").toLowerCase();
+}
+
+function isSameOrSubdomain(host: string, baseHost: string): boolean {
+  const h = normalizeHost(host);
+  const b = normalizeHost(baseHost);
+  return h === b || h.endsWith(`.${b}`);
+}
+
 /**
- * Fetch one company site's self-description. Returns null when there is no
- * usable description. Rethrows RobotsDisallowedError / SsrfBlockedError so the
- * caller can distinguish "we chose not to fetch this" from "nothing was there".
+ * Find the first anchor whose href or visible text suggests a careers page,
+ * resolved to an absolute same-origin URL. Bounded like readMetaTag: every
+ * quantifier is delimited by a distinct character (`>`, a quote, `<`), and the
+ * link-text capture is explicitly capped at 80 chars — no unbounded
+ * backtracking on hostile HTML. Operates on the SAME capped `html` the
+ * description was read from; never fetches anything itself.
+ */
+export function findCareersLink(html: string, baseUrl: string): string | null {
+  let base: URL;
+  try {
+    base = new URL(baseUrl);
+  } catch {
+    return null;
+  }
+
+  const anchorPattern = /<a\s+[^>]*href=["']([^"'#][^"']*)["'][^>]*>([^<]{0,80})<\/a>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = anchorPattern.exec(html)) !== null) {
+    const [, href, text] = match;
+    const looksLikeCareers = /career|jobs?\b|hiring|join.?us/i.test(href) || /career|jobs?\b|hiring|join us|we.?re hiring/i.test(text);
+    if (!looksLikeCareers) continue;
+
+    let resolved: URL;
+    try {
+      resolved = new URL(href, base);
+    } catch {
+      continue;
+    }
+    if (resolved.protocol !== "http:" && resolved.protocol !== "https:") continue;
+    if (!isSameOrSubdomain(resolved.hostname, base.hostname)) continue;
+
+    return resolved.toString();
+  }
+  return null;
+}
+
+/**
+ * Fetch one company site's self-description (and, opportunistically, its
+ * careers link). Returns null when NEITHER is found. Rethrows
+ * RobotsDisallowedError / SsrfBlockedError so the caller can distinguish "we
+ * chose not to fetch this" from "nothing was there".
  */
 export async function fetchWebsiteMeta(input: WebsiteMetaInput): Promise<RawCompanyRecord | null> {
   const res = await resilientFetch(input.url, {
@@ -85,9 +151,13 @@ export async function fetchWebsiteMeta(input: WebsiteMetaInput): Promise<RawComp
   // stream hundreds of MB into memory before the timeout fires.
   const head = await readCapped(res, HEAD_SCAN_LIMIT);
   const description = readMetaTag(head, "og:description") ?? readMetaTag(head, "description");
-  if (!description) return null;
+  const careersUrl = findCareersLink(head, input.url);
+  if (!description && !careersUrl) return null;
 
-  return { name: input.name, description };
+  const record: RawCompanyRecord = { name: input.name };
+  if (description) record.description = description;
+  if (careersUrl) record.careers_url = careersUrl;
+  return record;
 }
 
 /** Read at most `limit` bytes of the body, then stop pulling from the stream. */
