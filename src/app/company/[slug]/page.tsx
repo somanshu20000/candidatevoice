@@ -17,6 +17,8 @@ import type { EvidenceItem, ExternalReportDisplayRow, CohortFilter } from "@/lib
 import { buildBehaviouralFingerprint, BEHAVIOURAL_DIMENSION_LABELS } from "@/lib/fingerprint/behavioural";
 import type { BehaviouralDimensionScore } from "@/lib/fingerprint/behavioural";
 import { buildForecast, hasAnyForecast } from "@/lib/fingerprint/forecast";
+import { buildActionPlan } from "@/lib/fingerprint/actions";
+import type { ActionPlan, ActionTone } from "@/lib/fingerprint/actions";
 import type { ForecastLine, ForecastTone } from "@/lib/fingerprint/forecast";
 import { computeFit, explainFit } from "@/lib/advisor";
 import { readCandidateVector, hasPreferences } from "@/lib/candidate/server";
@@ -283,6 +285,59 @@ function ForecastPanel({
   );
 }
 
+const ACTION_TONE: Record<ActionTone, { dot: string; text: string }> = {
+  risk: { dot: "bg-bad", text: "text-bad" },
+  caution: { dot: "bg-warn", text: "text-warn" },
+  positive: { dot: "bg-good", text: "text-good" },
+};
+
+const VERDICT_CLS: Record<ActionPlan["verdict"], string> = {
+  apply: "border-[#C5DBCC] bg-[#E8F0EA] text-good",
+  apply_with_caution: "border-[#E3D4AE] bg-[#F4EEDD] text-warn",
+  insufficient: "border-rule-strong bg-paper-sunk text-ink-muted",
+};
+
+const VERDICT_LABEL: Record<ActionPlan["verdict"], string> = {
+  apply: "Worth applying",
+  apply_with_caution: "Apply with caution",
+  insufficient: "Not enough data",
+};
+
+/**
+ * Action Engine surface — the DECISION over the fingerprint (verdict + grounded
+ * flags), sitting right under the Forecast ("what to expect"). Every flag
+ * carries the metric that produced it; nothing here is generated. Renders even
+ * on an insufficient verdict — the honest "we can't call it yet" is itself the
+ * action a reader needs.
+ */
+function ActionPanel({ plan }: { plan: ActionPlan }) {
+  return (
+    <section className="border border-rule bg-paper-sheet rounded-sm p-6 sm:p-8 mb-8 shadow-sheet">
+      <div className="flex flex-wrap items-center gap-3 mb-2">
+        <span className={`inline-flex items-center border px-3 py-1 rounded-full text-[11px] font-mono uppercase tracking-wider font-medium ${VERDICT_CLS[plan.verdict]}`}>
+          {VERDICT_LABEL[plan.verdict]}
+        </span>
+        <h2 className="font-serif text-lg sm:text-xl text-ink">Should you apply?</h2>
+      </div>
+      <p className="text-sm text-ink-soft mb-5 leading-relaxed">{plan.headline}</p>
+
+      {plan.items.length > 0 && (
+        <ul className="space-y-2.5">
+          {plan.items.map((it) => (
+            <li key={it.key} className="flex items-start gap-3">
+              <span className={`mt-1.5 h-2 w-2 rounded-full shrink-0 ${ACTION_TONE[it.tone].dot}`} aria-hidden />
+              <span className="min-w-0">
+                <span className={`text-sm font-medium ${ACTION_TONE[it.tone].text}`}>{it.label}</span>
+                <span className="block text-xs text-ink-muted">{it.detail}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 /**
  * The "Evidence Match" cohort selector — the honest alternative to an ATS
  * score. No resume upload, no invented weights: the candidate names two true
@@ -461,6 +516,8 @@ export default async function CompanyPage({ params, searchParams }: Props) {
   const hqs = computeHqs(fingerprint);
   const forecastLines = buildForecast(fingerprint, items);
   const forecastAvailable = hasAnyForecast(forecastLines);
+  // The decision layer over the same fingerprint + HQS: verdict + grounded flags.
+  const actionPlan = buildActionPlan(fingerprint, hqs);
 
   // "Fit for you" — only when the visitor has saved priorities. Pure over the
   // fingerprint already built above, so a visitor with a preference vector pays
@@ -510,6 +567,11 @@ export default async function CompanyPage({ params, searchParams }: Props) {
         {forecastAvailable && (
           <ForecastPanel lines={forecastLines} rawTotal={rawTotal} tier={hqs?.tier ?? "insufficient"} />
         )}
+
+        {/* The decision layer over the forecast: verdict + grounded action flags.
+            Shown whenever the forecast is — a verdict without the "what to expect"
+            behind it would be an unsupported claim. */}
+        {forecastAvailable && <ActionPanel plan={actionPlan} />}
 
         {/* Personalised answer, when the visitor has set priorities. */}
         {fitForYou && fitExplanation && (
