@@ -1,12 +1,18 @@
 /**
  * Taxonomy parity: src/lib/fingerprint/taxonomy.ts must match the seed data in
- * supabase/migrations/0003_fingerprint_model.sql.
+ * the fingerprint migrations.
  *
  * These are two copies of the same constant — one the database enforces foreign
  * keys against, one the form and aggregation engine read. Drift between them is
  * silent and nasty: a facet renamed in TypeScript but not in SQL produces
  * ratings that violate a foreign key at insert time, in production, on a real
  * submission. This test makes that a build failure instead.
+ *
+ * A taxonomy table may be seeded across MORE THAN ONE migration (0003 laid down
+ * the original 6 dimensions / 13 facets / 10 emotions; 0017 added two
+ * process-clarity facets). seededRows therefore unions every `insert into
+ * <table>` block across all fingerprint migrations, so a facet added in a later
+ * migration is checked exactly like an original one.
  */
 
 import { describe, expect, it } from "vitest";
@@ -21,33 +27,45 @@ import {
   awaitingSourceDimensions,
 } from "@/lib/fingerprint/taxonomy";
 
-const MIGRATION = readFileSync(
-  path.join(process.cwd(), "supabase/migrations/0003_fingerprint_model.sql"),
-  "utf8"
-);
+/** Every migration that seeds any part of the fingerprint taxonomy. */
+const TAXONOMY_MIGRATIONS = ["0003_fingerprint_model.sql", "0017_process_clarity_facets.sql"];
+
+const MIGRATION_SQL = TAXONOMY_MIGRATIONS.map((f) =>
+  readFileSync(path.join(process.cwd(), "supabase/migrations", f), "utf8")
+).join("\n");
 
 /**
- * Pull the seeded value rows for one table out of the migration.
- * Each seed row occupies its own line and starts with "(" — anything else
- * (the `insert into ... values` header, SQL comments, blank lines) is skipped.
+ * Pull the seeded value rows for one table out of every migration that seeds it.
+ * Each `insert into <table> ... values (...) on conflict ...` block is parsed
+ * independently and unioned. Each seed row occupies its own line and starts
+ * with "(" — anything else (the header, SQL comments, blank lines) is skipped.
  */
 function seededRows(table: string): string[][] {
-  const start = MIGRATION.indexOf(`insert into ${table}`);
-  expect(start, `no seed block found for ${table}`).toBeGreaterThan(-1);
-  const end = MIGRATION.indexOf("on conflict", start);
-  expect(end, `no "on conflict" terminator for ${table}`).toBeGreaterThan(start);
-
   const rows: string[][] = [];
-  for (const line of MIGRATION.slice(start, end).split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith("(")) continue;
-    // Quoted strings first so digits inside a string are consumed as part of
-    // the string rather than matched as a bare number.
-    const fields = [...trimmed.matchAll(/'((?:[^']|'')*)'|(\d+)/g)].map((m) =>
-      m[1] !== undefined ? m[1] : m[2]
-    );
-    if (fields.length > 0) rows.push(fields);
+  let searchFrom = 0;
+  let blocks = 0;
+
+  for (;;) {
+    const start = MIGRATION_SQL.indexOf(`insert into ${table}`, searchFrom);
+    if (start === -1) break;
+    const end = MIGRATION_SQL.indexOf("on conflict", start);
+    expect(end, `no "on conflict" terminator for ${table}`).toBeGreaterThan(start);
+    blocks += 1;
+
+    for (const line of MIGRATION_SQL.slice(start, end).split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("(")) continue;
+      // Quoted strings first so digits inside a string are consumed as part of
+      // the string rather than matched as a bare number.
+      const fields = [...trimmed.matchAll(/'((?:[^']|'')*)'|(\d+)/g)].map((m) =>
+        m[1] !== undefined ? m[1] : m[2]
+      );
+      if (fields.length > 0) rows.push(fields);
+    }
+    searchFrom = end + 1;
   }
+
+  expect(blocks, `no seed block found for ${table}`).toBeGreaterThan(0);
   return rows;
 }
 

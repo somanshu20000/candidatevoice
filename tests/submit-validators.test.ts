@@ -52,8 +52,9 @@ describe("ratings validation contract (via the payload shape the route expects)"
   it("FACET_KEYS is stable and includes the known primary facets a UI would send", () => {
     // If the taxonomy loses a facet, the router either needs to migrate old
     // rows or the deprecated facet must remain valid — either way, a change
-    // here should be deliberate. Pin at 13 (0003_fingerprint_model.sql seeds 13).
-    expect(FACET_KEYS.length).toBe(13);
+    // here should be deliberate. 13 from 0003 + 2 process-clarity facets from
+    // 0017 (compensation_clarity, work_arrangement_clarity) = 15.
+    expect(FACET_KEYS.length).toBe(15);
   });
 
   it("distinct facets are distinct — no PK collision from duplicate keys in one submission", () => {

@@ -7,6 +7,13 @@ import Footer from "@/components/Footer";
 import type { HiringSubmission, ApplicationChannel } from "@/types/index";
 import { AlertTriangle, Check } from "lucide-react";
 import { normalizeCompanySlug } from "@/lib/company-slug";
+import {
+  DIMENSIONS,
+  EMOTIONS,
+  facetsForDimension,
+  type FacetKey,
+  type EmotionKey,
+} from "@/lib/fingerprint/taxonomy";
 
 type ExperienceBucket = HiringSubmission["experience_bucket"];
 type Stage = HiringSubmission["stage"];
@@ -16,6 +23,15 @@ type LastInteractionGap = HiringSubmission["last_interaction_gap"];
 type CallDuration = HiringSubmission["call_duration"];
 type FirstInteractionOutcome = HiringSubmission["first_interaction_outcome"];
 type PaymentFlagOption = "no" | "before_interview" | "after_interview" | "training_fee";
+
+/** The likert dimensions a candidate can rate, in display order. Derived from the
+ *  taxonomy — a facet added by a later migration (e.g. 0017's clarity facets)
+ *  appears here automatically, with no edit to this file. */
+const LIKERT_DIMENSIONS = DIMENSIONS.filter(
+  (d) => d.measurement === "likert" && d.sourceType !== "employee"
+);
+/** The one emotion-measured dimension (Emotional Climate). */
+const EMOTION_DIMENSION = DIMENSIONS.find((d) => d.measurement === "emotion") ?? null;
 
 interface FormState {
   company: string;
@@ -33,9 +49,15 @@ interface FormState {
   first_interaction_outcome: FirstInteractionOutcome | "";
   reason: string;
   payment_flag: PaymentFlagOption | "";
+  /** Optional Likert facet ratings (1–5), keyed by facet_key. Absent = not rated.
+   *  Everything here is optional: evidence acquisition is the bottleneck, so a
+   *  contributor who fills nothing still submits a valid Family A report. */
+  ratings: Partial<Record<FacetKey, number>>;
+  /** Optional emotion tags. */
+  emotions: EmotionKey[];
 }
 
-const STEP_LABELS = ["Company & Role", "Stage & Outcome", "Timeline", "Details"];
+const STEP_LABELS = ["Company & Role", "Stage & Outcome", "Timeline", "Details", "Experience"];
 
 const SELECT_CLS =
   "w-full bg-paper border border-rule text-ink-soft text-sm rounded-sm px-3 py-2.5 shadow-press focus:outline-none focus:border-accent transition-colors";
@@ -61,7 +83,54 @@ const EMPTY: FormState = {
   response_time_bucket: "", last_interaction_gap: "",
   call_duration: "", first_interaction_outcome: "",
   reason: "", payment_flag: "",
+  ratings: {}, emotions: [],
 };
+
+/** One facet as a compact 1–5 scale, anchored by its low/high labels. Clicking
+ *  the currently-selected value clears it (rating stays optional). */
+function FacetRating({
+  label,
+  anchorLow,
+  anchorHigh,
+  value,
+  onChange,
+}: {
+  label: string;
+  anchorLow: string;
+  anchorHigh: string;
+  value: number | undefined;
+  onChange: (v: number | undefined) => void;
+}) {
+  return (
+    <div className="py-2.5 border-b border-rule last:border-0">
+      <div className="flex items-center justify-between gap-3 mb-1.5">
+        <span className="text-sm text-ink-soft">{label}</span>
+        <div className="flex gap-1 shrink-0">
+          {[1, 2, 3, 4, 5].map((n) => (
+            <button
+              key={n}
+              type="button"
+              aria-label={`${label}: ${n} of 5`}
+              aria-pressed={value === n}
+              onClick={() => onChange(value === n ? undefined : n)}
+              className={`h-7 w-7 rounded-sm border text-xs font-mono tnum transition-colors ${
+                value === n
+                  ? "bg-accent border-accent text-paper-sheet"
+                  : "border-rule-strong text-ink-faint bg-paper hover:border-ink-faint"
+              }`}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="flex justify-between text-[10px] text-ink-faint">
+        <span>{anchorLow}</span>
+        <span>{anchorHigh}</span>
+      </div>
+    </div>
+  );
+}
 
 export default function SubmitPage() {
   const [step, setStep] = useState(1);
@@ -83,11 +152,31 @@ export default function SubmitPage() {
     setForm((f) => ({ ...f, [key]: value }));
   }
 
+  function setRating(facet: FacetKey, value: number | undefined) {
+    setForm((f) => {
+      const ratings = { ...f.ratings };
+      if (value === undefined) delete ratings[facet];
+      else ratings[facet] = value;
+      return { ...f, ratings };
+    });
+  }
+
+  function toggleEmotion(key: EmotionKey) {
+    setForm((f) => ({
+      ...f,
+      emotions: f.emotions.includes(key)
+        ? f.emotions.filter((e) => e !== key)
+        : [...f.emotions, key],
+    }));
+  }
+
   function canAdvance(): boolean {
     if (step === 1) return form.company.trim() !== "" && form.role.trim() !== "" && form.experience_bucket !== "";
     if (step === 2) return form.stage !== "" && form.outcome !== "";
     if (step === 3) return form.response_time_bucket !== "" && form.last_interaction_gap !== "" && form.call_duration !== "" && form.first_interaction_outcome !== "";
     if (step === 4) return form.reason !== "" && form.payment_flag !== "";
+    // Step 5 (Experience) is entirely optional — always advanceable/submittable.
+    if (step === 5) return true;
     return false;
   }
 
@@ -117,10 +206,18 @@ export default function SubmitPage() {
       is_approved: false,
     };
 
+    // Family B, optional: only send facets that were actually rated. The route
+    // (validateRatings/validateEmotions) treats an absent/empty array as "no
+    // ratings", so omitting them entirely is a valid submission.
+    const ratings = Object.entries(form.ratings)
+      .filter(([, v]) => typeof v === "number")
+      .map(([facet_key, rating]) => ({ facet_key, rating }));
+    const emotions = form.emotions.map((emotion_key) => ({ emotion_key }));
+
     const response = await fetch("/api/submit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ ...payload, ratings, emotions }),
     });
 
     setSubmitting(false);
@@ -395,6 +492,65 @@ export default function SubmitPage() {
                   <option value="training_fee">Training fee</option>
                 </select>
               </div>
+            </div>
+          )}
+
+          {/* Step 5 — Experience ratings + emotions. Entirely optional. */}
+          {step === 5 && (
+            <div className="space-y-6">
+              <div className="border border-rule bg-paper rounded-sm p-3.5">
+                <p className="text-xs text-ink-soft leading-relaxed">
+                  <span className="font-semibold text-ink">Optional.</span>{" "}
+                  Rate any of these to sharpen the company&apos;s fingerprint. Skip
+                  what you don&apos;t want to answer — you can submit with none of it.
+                </p>
+              </div>
+
+              {LIKERT_DIMENSIONS.map((dim) => (
+                <div key={dim.key}>
+                  <h3 className="text-sm font-medium text-ink mb-1">{dim.label}</h3>
+                  <div className="border border-rule bg-paper-sheet rounded-sm px-4 py-1">
+                    {facetsForDimension(dim.key).map((facet) => (
+                      <FacetRating
+                        key={facet.key}
+                        label={facet.label}
+                        anchorLow={facet.anchorLow}
+                        anchorHigh={facet.anchorHigh}
+                        value={form.ratings[facet.key]}
+                        onChange={(v) => setRating(facet.key, v)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))}
+
+              {EMOTION_DIMENSION && (
+                <div>
+                  <h3 className="text-sm font-medium text-ink mb-1">{EMOTION_DIMENSION.label}</h3>
+                  <p className="text-xs text-ink-faint mb-2.5">How did the process make you feel? Pick any that apply.</p>
+                  <div className="flex flex-wrap gap-2">
+                    {EMOTIONS.map((emotion) => {
+                      const on = form.emotions.includes(emotion.key);
+                      return (
+                        <button
+                          key={emotion.key}
+                          type="button"
+                          aria-pressed={on}
+                          onClick={() => toggleEmotion(emotion.key)}
+                          className={`text-sm px-3 py-1.5 rounded-full border transition-colors ${
+                            on
+                              ? "bg-accent border-accent text-paper-sheet"
+                              : "border-rule-strong text-ink-soft bg-paper hover:border-ink-faint"
+                          }`}
+                        >
+                          {emotion.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {error && (
                 <p className="text-sm text-bad border border-[#E6C4BF] bg-[#F9EEEC] rounded-sm px-3 py-2.5">
                   {error}
@@ -415,7 +571,7 @@ export default function SubmitPage() {
             </button>
           ) : <div />}
 
-          {step < 4 ? (
+          {step < 5 ? (
             <button
               onClick={() => setStep((s) => s + 1)}
               disabled={!canAdvance()}

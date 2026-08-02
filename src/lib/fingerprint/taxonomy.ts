@@ -35,7 +35,9 @@ export type FacetKey =
   | "role_clarity"
   | "process_efficiency"
   | "assignment_reasonableness"
-  | "technical_depth";
+  | "technical_depth"
+  | "compensation_clarity"
+  | "work_arrangement_clarity";
 
 export type EmotionKey =
   | "appreciated"
@@ -268,6 +270,29 @@ export const FACETS: readonly Facet[] = [
     anchorLow: "Superficial or irrelevant",
     anchorHigh: "Rigorous and relevant",
     displayOrder: 4,
+  },
+  // Two candidate-knowable clarity facets (migration 0017). A candidate learns
+  // both DURING interviewing, so they are first-hand candidate evidence — unlike
+  // salary satisfaction / WLB / growth, which require having worked at the
+  // company and are deliberately out of scope (see the employee-sourced
+  // leadership / work_culture dimensions).
+  {
+    key: "compensation_clarity",
+    dimensionKey: "hiring_process",
+    label: "Pay transparency",
+    prompt: "Was the pay range disclosed during the process?",
+    anchorLow: "Never disclosed or evasive",
+    anchorHigh: "Disclosed early and clearly",
+    displayOrder: 5,
+  },
+  {
+    key: "work_arrangement_clarity",
+    dimensionKey: "hiring_process",
+    label: "Work arrangement",
+    prompt: "Was the work arrangement (remote, hybrid or onsite) made clear?",
+    anchorLow: "Vague or kept changing",
+    anchorHigh: "Clear from the start",
+    displayOrder: 6,
   },
 ] as const;
 
