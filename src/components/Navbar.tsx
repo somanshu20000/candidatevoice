@@ -11,6 +11,7 @@ import Link from "next/link";
 const NAV_LINKS = [
   { href: "/companies", label: "Companies" },
   { href: "/browse", label: "Browse" },
+  { href: "/compare", label: "Compare" },
   { href: "/analytics", label: "Analytics" },
   { href: "/advisor", label: "Advisor" },
 ] as const;
