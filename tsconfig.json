@@ -38,6 +38,7 @@
   ],
   "exclude": [
     "node_modules",
-    "lovable-export"
+    "lovable-export",
+    "scripts/Data_Deepseek_layer"
   ]
 }
