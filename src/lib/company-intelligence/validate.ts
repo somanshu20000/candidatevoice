@@ -153,9 +153,7 @@ export function validateBatchCoherence(companies: NormalizedCompany[]): Map<numb
   return issuesByIndex;
 }
 
-const CONFIDENCE_RANK = new Map(METADATA_CONFIDENCE_VALUES.map((c, i) => [c, i]));
-
 /** Whether the metadata confidence label is one of the four accepted values. */
 export function isValidConfidence(value: string): boolean {
-  return CONFIDENCE_RANK.has(value as never);
+  return (METADATA_CONFIDENCE_VALUES as readonly string[]).includes(value);
 }

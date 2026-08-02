@@ -7,7 +7,7 @@
  *
  * Deliberately narrow: this fetches only well-defined Wikidata PROPERTIES
  * (P856 website, P2037 GitHub username, P249 ticker symbol, P154 logo image,
- * P571 inception date). It does not touch Wikipedia's prose at all — that is
+ * P571 inception date, P452 industry). It does not touch Wikipedia's prose at all — that is
  * wikipedia.ts's job, under a different licence with a different attribution
  * obligation. Keeping the two apart is what lets the importer record correct
  * per-source provenance instead of one blended blob.
@@ -41,6 +41,7 @@ interface SparqlBinding {
   ticker?: { value: string };
   logo?: { value: string };
   inception?: { value: string };
+  industryLabel?: { value: string };
   isBusiness?: { value: string };
   isGeographic?: { value: string };
   enwikiTitle?: { value: string };
@@ -90,17 +91,32 @@ async function searchEntities(name: string): Promise<string[]> {
  *
  * `enwikiTitle` follows the entity's real English Wikipedia sitelink — the
  * verified article title, not a guess (Stripe's sitelink is "Stripe, Inc.").
+ *
+ * `industryLabel` (P452) is fetched the same way — OPTIONAL, English label only
+ * — feeding `RawCompanyRecord.industry`, which normalize.ts's existing
+ * collectTaxonomy already turns into a `taxonomy_terms` row with zero changes
+ * needed there. A company can have SEVERAL P452 values; fetchBindings keeps
+ * only the first row per entity (same as it already would for a hypothetical
+ * multi-valued inception date), so this deliberately keeps one industry, not
+ * all of them. Good enough for "similar companies by shared industry"; a
+ * GROUP_CONCAT to capture every value would restructure this whole query
+ * (everything becomes grouped) for a case that doesn't need it yet.
  */
 function buildQuery(qids: string[]): string {
   const values = qids.map((q) => `wd:${q}`).join(" ");
   return `
-    SELECT ?item ?website ?githubHandle ?ticker ?logo ?inception ?isBusiness ?isGeographic ?enwikiTitle WHERE {
+    SELECT ?item ?website ?githubHandle ?ticker ?logo ?inception ?industryLabel ?isBusiness ?isGeographic ?enwikiTitle WHERE {
       VALUES ?item { ${values} }
       OPTIONAL { ?item wdt:P856 ?website . }
       OPTIONAL { ?item wdt:P2037 ?githubHandle . }
       OPTIONAL { ?item wdt:P249 ?ticker . }
       OPTIONAL { ?item wdt:P154 ?logo . }
       OPTIONAL { ?item wdt:P571 ?inception . }
+      OPTIONAL {
+        ?item wdt:P452 ?industry .
+        ?industry rdfs:label ?industryLabel .
+        FILTER(LANG(?industryLabel) = "en")
+      }
       OPTIONAL {
         ?sitelink schema:about ?item ;
                   schema:isPartOf <https://en.wikipedia.org/> ;
@@ -226,6 +242,7 @@ export function wikidataRecordFromEntity(name: string, entity: VerifiedCompanyEn
   if (binding.logo?.value) record.logo_url = commonsFileUrl(binding.logo.value);
   const year = yearFromInception(binding.inception?.value);
   if (year) record.founded_year = year;
+  if (binding.industryLabel?.value) record.industry = binding.industryLabel.value;
   return record;
 }
 

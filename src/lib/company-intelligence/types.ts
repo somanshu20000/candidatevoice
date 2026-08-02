@@ -36,6 +36,17 @@ export const METADATA_CONFIDENCE_VALUES: readonly MetadataConfidence[] = [
   "official",
 ];
 
+/**
+ * Ordinal rank of a confidence label, low to high. The single source of truth
+ * for "which of two confidence labels is more trustworthy" — used both to
+ * validate the label (validate.ts) and to enforce that a write can only ever
+ * raise a row's confidence, never lower it (store.ts). Never compare
+ * MetadataConfidence values with < / > directly; always go through this.
+ */
+export function confidenceRank(value: MetadataConfidence): number {
+  return METADATA_CONFIDENCE_VALUES.indexOf(value);
+}
+
 // --- Controlled value sets (mirror the CHECK constraints in 0005) -----------
 
 export type LinkType =

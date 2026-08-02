@@ -12,7 +12,21 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { MetadataConfidence } from "./types";
+import { confidenceRank, type MetadataConfidence } from "./types";
+
+/**
+ * The write side of "Generated → Verified": a confidence write may only ever
+ * raise a row's confidence, never lower it. Without this, an on-demand
+ * re-enrich (always `unverified`, by design — see enrich.ts) run against a row
+ * a prior CLI import had already brought to `official` would silently demote
+ * it back to `unverified`, discarding real verification work. Mirrors the
+ * null-never-overwrites-non-null discipline upsertProfile already applies to
+ * its other fields, applied to the one field that discipline didn't cover.
+ */
+export function upgradedConfidence(next: MetadataConfidence, prev: MetadataConfidence | null | undefined): MetadataConfidence {
+  if (prev === null || prev === undefined) return next;
+  return confidenceRank(next) >= confidenceRank(prev) ? next : prev;
+}
 
 export interface SourceRow {
   id: string;
@@ -219,7 +233,7 @@ export function createSupabaseCompanyStore(client: SupabaseClient): CompanyStore
       // only prevents *absence* of data from destroying previously-known data.
       const existing = await client
         .from("company_profiles")
-        .select("legal_name, description, founded_year, size_band, stock_symbol, stock_exchange, headquarters_city_id")
+        .select("legal_name, description, founded_year, size_band, stock_symbol, stock_exchange, headquarters_city_id, confidence")
         .eq("organization_id", input.organizationId)
         .maybeSingle();
       if (existing.error) throw new Error(`upsertProfile read(${input.organizationId}): ${existing.error.message}`);
@@ -240,7 +254,7 @@ export function createSupabaseCompanyStore(client: SupabaseClient): CompanyStore
           stock_exchange: coalesce(input.stockExchange, prev?.stock_exchange),
           headquarters_city_id: coalesce(input.headquartersCityId, prev?.headquarters_city_id),
           metadata_source_id: input.sourceId,
-          confidence: input.confidence,
+          confidence: upgradedConfidence(input.confidence, prev?.confidence as MetadataConfidence | undefined),
         },
         { onConflict: "organization_id" }
       );
@@ -249,13 +263,22 @@ export function createSupabaseCompanyStore(client: SupabaseClient): CompanyStore
     },
 
     async upsertLink(input) {
+      const existing = await client
+        .from("company_links")
+        .select("confidence")
+        .eq("organization_id", input.organizationId)
+        .eq("link_type", input.linkType)
+        .eq("url", input.url)
+        .maybeSingle();
+      if (existing.error) throw new Error(`upsertLink read(${input.organizationId}/${input.linkType}): ${existing.error.message}`);
+
       const { error } = await client.from("company_links").upsert(
         {
           organization_id: input.organizationId,
           link_type: input.linkType,
           url: input.url,
           metadata_source_id: input.sourceId,
-          confidence: input.confidence,
+          confidence: upgradedConfidence(input.confidence, existing.data?.confidence as MetadataConfidence | undefined),
         },
         { onConflict: "organization_id,link_type,url" }
       );
@@ -285,13 +308,21 @@ export function createSupabaseCompanyStore(client: SupabaseClient): CompanyStore
     },
 
     async upsertLocation(input) {
+      const existing = await client
+        .from("company_locations")
+        .select("confidence")
+        .eq("organization_id", input.organizationId)
+        .eq("city_id", input.cityId)
+        .maybeSingle();
+      if (existing.error) throw new Error(`upsertLocation read(${input.organizationId}): ${existing.error.message}`);
+
       const { error } = await client.from("company_locations").upsert(
         {
           organization_id: input.organizationId,
           city_id: input.cityId,
           is_headquarters: input.isHeadquarters,
           metadata_source_id: input.sourceId,
-          confidence: input.confidence,
+          confidence: upgradedConfidence(input.confidence, existing.data?.confidence as MetadataConfidence | undefined),
         },
         { onConflict: "organization_id,city_id" }
       );
@@ -318,13 +349,21 @@ export function createSupabaseCompanyStore(client: SupabaseClient): CompanyStore
     },
 
     async upsertCompanyTaxonomy(input) {
+      const existing = await client
+        .from("company_taxonomy")
+        .select("confidence")
+        .eq("organization_id", input.organizationId)
+        .eq("term_id", input.termId)
+        .maybeSingle();
+      if (existing.error) throw new Error(`upsertCompanyTaxonomy read(${input.organizationId}): ${existing.error.message}`);
+
       const { error } = await client.from("company_taxonomy").upsert(
         {
           organization_id: input.organizationId,
           term_id: input.termId,
           is_primary: input.isPrimary,
           metadata_source_id: input.sourceId,
-          confidence: input.confidence,
+          confidence: upgradedConfidence(input.confidence, existing.data?.confidence as MetadataConfidence | undefined),
         },
         { onConflict: "organization_id,term_id" }
       );
@@ -332,12 +371,20 @@ export function createSupabaseCompanyStore(client: SupabaseClient): CompanyStore
     },
 
     async upsertHiringRegion(input) {
+      const existing = await client
+        .from("company_hiring_regions")
+        .select("confidence")
+        .eq("organization_id", input.organizationId)
+        .eq("country_code", input.countryCode)
+        .maybeSingle();
+      if (existing.error) throw new Error(`upsertHiringRegion read(${input.organizationId}): ${existing.error.message}`);
+
       const { error } = await client.from("company_hiring_regions").upsert(
         {
           organization_id: input.organizationId,
           country_code: input.countryCode,
           metadata_source_id: input.sourceId,
-          confidence: input.confidence,
+          confidence: upgradedConfidence(input.confidence, existing.data?.confidence as MetadataConfidence | undefined),
         },
         { onConflict: "organization_id,country_code" }
       );

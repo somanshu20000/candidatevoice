@@ -11,8 +11,11 @@
  * `unverified`. That is the "provisional until verified" marker (it is already
  * a valid value in every metadata table's CHECK constraint and was previously
  * written by nothing). A later CLI import at a higher confidence
- * (`website_meta` → `official`) upgrades the row naturally, because store.ts
- * coalesces nulls and the last non-null writer wins.
+ * (`website_meta` → `official`) upgrades the row — and, symmetrically, this
+ * path can never DOWNGRADE a row a prior import already verified: store.ts's
+ * upsert methods only ever raise a row's confidence (upgradedConfidence),
+ * never lower it, so a `?force=1` re-enrich on an already-`official` company
+ * cannot regress it back to `unverified`.
  *
  * Mirrors scripts/bulk-import-companies.ts enrichOne, minus the CSV hints and
  * the cross-run githubExhausted flag (a single request has no batch to protect).
