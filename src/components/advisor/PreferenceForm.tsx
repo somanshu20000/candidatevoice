@@ -102,6 +102,15 @@ export default function PreferenceForm({ initial }: { initial: PreferenceVector 
         })}
       </div>
 
+      <p className="text-[11px] text-ink-faint mt-4 leading-relaxed border-t border-rule pt-4">
+        <span className="font-medium text-ink-muted">Why some say &ldquo;not measured yet&rdquo;:</span>{" "}
+        we score a priority only from what candidates can report first-hand about
+        the hiring process. Things like salary, day-to-day balance, growth or
+        prestige come from working somewhere, not interviewing there — so we
+        collect your priority but never guess a company&apos;s score on it. Your
+        rating still shapes the ones we <em>can</em> measure.
+      </p>
+
       <div className="flex items-center gap-3 mt-6">
         <button
           onClick={save}
