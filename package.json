@@ -16,6 +16,7 @@
     "companies:aliases": "tsx scripts/update-aliases.ts",
     "companies:fetch": "tsx scripts/fetch-company-metadata.ts",
     "companies:bulk": "tsx scripts/bulk-import-companies.ts",
+    "companies:backfill": "tsx scripts/backfill-company-metadata.ts",
     "external:import": "tsx scripts/import-external.ts"
   },
   "dependencies": {
