@@ -62,6 +62,10 @@ export interface CompanyStore {
   upsertCompanyTaxonomy(input: TaxonomyUpsert): Promise<void>;
   upsertHiringRegion(input: HiringRegionUpsert): Promise<void>;
   upsertFieldObservation(input: FieldObservationUpsert): Promise<void>;
+
+  getCurrentLogo(organizationId: string): Promise<{ sourceUrl: string | null; contentHash: string | null } | null>;
+  uploadLogoBytes(storagePath: string, bytes: Buffer, contentType: string): Promise<void>;
+  upsertLogoRecord(input: LogoRecordUpsert): Promise<void>;
 }
 
 export interface ProfileUpsert {
@@ -115,6 +119,16 @@ export interface FieldObservationUpsert {
   sourceId: string;
   confidence: MetadataConfidence;
   batchId: string;
+}
+
+export interface LogoRecordUpsert {
+  organizationId: string;
+  storagePath: string;
+  contentHash: string;
+  mimeType: "image/png" | "image/svg+xml" | "image/webp" | "image/jpeg";
+  byteSize: number;
+  sourceUrl: string;
+  sourceId: string;
 }
 
 /** Supabase-backed implementation. Uses the service-role client (RLS-bypassing). */
@@ -405,6 +419,72 @@ export function createSupabaseCompanyStore(client: SupabaseClient): CompanyStore
         { onConflict: "organization_id,field_key,metadata_source_id" }
       );
       if (error) throw new Error(`upsertFieldObservation(${input.organizationId}/${input.fieldKey}): ${error.message}`);
+    },
+
+    async getCurrentLogo(organizationId) {
+      const { data, error } = await client
+        .from("company_logos")
+        .select("source_url, content_hash")
+        .eq("organization_id", organizationId)
+        .eq("is_current", true)
+        .maybeSingle();
+      if (error) throw new Error(`getCurrentLogo(${organizationId}): ${error.message}`);
+      if (!data) return null;
+      return { sourceUrl: data.source_url, contentHash: data.content_hash };
+    },
+
+    // Bucket "company-logos" — must match STORAGE_BUCKET in
+    // src/app/api/logo/[slug]/route.ts, the only reader.
+    async uploadLogoBytes(storagePath, bytes, contentType) {
+      const { error } = await client.storage.from("company-logos").upload(storagePath, bytes, {
+        contentType,
+        // The path is content-addressed (organizationId/contentHash.ext), so an
+        // upload to the same path is always the same bytes — upsert is safe and
+        // just avoids a spurious "already exists" error on re-import.
+        upsert: true,
+      });
+      if (error) throw new Error(`uploadLogoBytes(${storagePath}): ${error.message}`);
+    },
+
+    async upsertLogoRecord(input) {
+      const maxVersion = await client
+        .from("company_logos")
+        .select("version")
+        .eq("organization_id", input.organizationId)
+        .order("version", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (maxVersion.error) throw new Error(`upsertLogoRecord version read(${input.organizationId}): ${maxVersion.error.message}`);
+      const nextVersion = (maxVersion.data?.version ?? 0) + 1;
+
+      // The partial unique index (organization_id where is_current) permits at
+      // most one current row — flip the old one before inserting the new one,
+      // rather than a single upsert, since this is a new version, not an
+      // update-in-place of the same row.
+      const flip = await client
+        .from("company_logos")
+        .update({ is_current: false })
+        .eq("organization_id", input.organizationId)
+        .eq("is_current", true);
+      if (flip.error) throw new Error(`upsertLogoRecord flip(${input.organizationId}): ${flip.error.message}`);
+
+      const { error } = await client.from("company_logos").insert({
+        organization_id: input.organizationId,
+        storage_path: input.storagePath,
+        content_hash: input.contentHash,
+        mime_type: input.mimeType,
+        byte_size: input.byteSize,
+        source_url: input.sourceUrl,
+        // Logos are typically trademarked even when the image file itself
+        // carries an open Commons licence — we don't parse or verify that
+        // metadata, so `license` stays null rather than asserting one we
+        // haven't actually confirmed.
+        license: null,
+        version: nextVersion,
+        is_current: true,
+        metadata_source_id: input.sourceId,
+      });
+      if (error) throw new Error(`upsertLogoRecord insert(${input.organizationId}): ${error.message}`);
     },
   };
 }

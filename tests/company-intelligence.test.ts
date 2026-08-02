@@ -258,6 +258,11 @@ function createFakeStore() {
     async upsertCompanyTaxonomy() {},
     async upsertHiringRegion() {},
     async upsertFieldObservation() {},
+    async getCurrentLogo() {
+      return null;
+    },
+    async uploadLogoBytes() {},
+    async upsertLogoRecord() {},
   };
 
   // capture the hash finishBatch should mark complete — runImport calls

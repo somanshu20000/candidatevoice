@@ -21,6 +21,7 @@
 import { createHash } from "crypto";
 import { normalizeCompany } from "./normalize";
 import { validateCompany, validateBatchCoherence } from "./validate";
+import { fetchAndPersistLogo } from "./logo";
 import type { CompanyStore, BatchCounts } from "./store";
 import type {
   ImportReport,
@@ -123,6 +124,13 @@ async function persistCompany(
       sourceId,
       confidence,
     });
+  }
+
+  // 5.5. Logo. Decorative — a download/upload failure here must never fail an
+  // import that otherwise succeeded, so it runs after the fields that matter
+  // are already durably written, and fetchAndPersistLogo itself never throws.
+  if (company.logoUrl) {
+    await fetchAndPersistLogo(store, orgId, company.logoUrl, sourceId);
   }
 
   // 6. Taxonomy.
