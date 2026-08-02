@@ -28,6 +28,8 @@ import Footer from "@/components/Footer";
 import CompanyOverview, { CompanyActions } from "@/components/CompanyOverview";
 import ProfileEnrichment from "@/components/ProfileEnrichment";
 import { loadCompanyProfile } from "@/lib/company-intelligence/read";
+import { loadSimilarCompanies } from "@/lib/company-intelligence/similar";
+import type { SimilarCompany } from "@/lib/company-intelligence/similar";
 import {
   COOKIE_NAME,
   decodeUnlockedCompaniesCookie,
@@ -143,6 +145,34 @@ function EvidenceMix({ firstPartyProportion, firstPartyRaw, externalRaw }: { fir
         Shares are by evidence <em>weight</em>, not raw count — external reports count for less,
         so their share here is smaller than their report count alone would suggest.
       </p>
+    </div>
+  );
+}
+
+/**
+ * "Companies like this one" — the read-model graph (src/lib/company-intelligence/
+ * similar.ts). Metadata-derived (shared industry / technology terms), so it can
+ * render on a company with zero reports. Renders nothing when there is no
+ * overlap — an honest empty, never a filler list.
+ */
+function SimilarCompanies({ rows }: { rows: SimilarCompany[] }) {
+  if (rows.length === 0) return null;
+  return (
+    <div className="border border-rule bg-paper-sheet rounded-sm p-6 shadow-sheet mb-8">
+      <h2 className="font-serif text-lg text-ink mb-1">Similar companies</h2>
+      <p className="text-xs text-ink-muted mb-4">By shared industry — a starting point for alternatives to compare.</p>
+      <div className="flex flex-wrap gap-2.5">
+        {rows.map((r) => (
+          <Link
+            key={r.organizationId}
+            href={`/company/${encodeURIComponent(r.slug)}`}
+            className="group border border-rule-strong bg-paper rounded-sm px-3 py-2 hover:border-ink-faint transition-colors"
+          >
+            <span className="text-sm text-ink-soft group-hover:text-ink capitalize">{r.displayName}</span>
+            <span className="block text-[10px] text-ink-faint mt-0.5">{r.sharedTerms.slice(0, 3).join(" · ")}</span>
+          </Link>
+        ))}
+      </div>
     </div>
   );
 }
@@ -372,6 +402,13 @@ export default async function CompanyPage({ params, searchParams }: Props) {
   const rawTotal = items.length;
   const effectiveN = evidenceSet?.base.effectiveN ?? 0;
 
+  // "Companies like this one" — metadata-derived (shared industry/tech terms),
+  // so it works even with zero reports. Only queried when the org resolved to a
+  // profile; degrades to [] on any error (never blocks the page).
+  const similar: SimilarCompany[] = profile?.organizationId
+    ? await loadSimilarCompanies(supabase as unknown as SupabaseClient, profile.organizationId).catch(() => [])
+    : [];
+
   // No evidence at all — the "seeded from imported metadata, no reports yet" state.
   if (rawTotal === 0) {
     return (
@@ -397,6 +434,8 @@ export default async function CompanyPage({ params, searchParams }: Props) {
           {profile !== null && !profile.hasMetadata && <ProfileEnrichment slug={companySlug} />}
 
           {profile?.hasMetadata && <CompanyOverview profile={profile} />}
+
+          <SimilarCompanies rows={similar} />
 
           <div className="border border-dashed border-rule-strong bg-paper-sheet rounded-sm p-12 text-center">
             <p className="text-ink-soft mb-1">No CandidateVoice hiring reports yet.</p>
@@ -532,6 +571,8 @@ export default async function CompanyPage({ params, searchParams }: Props) {
         </div>
 
         {profile?.hasMetadata && <CompanyOverview profile={profile} />}
+
+        <SimilarCompanies rows={similar} />
 
         {/* Evidence mix — only renders when external evidence exists. Shown
             regardless of unlock state: it's provenance, not the insight itself. */}
