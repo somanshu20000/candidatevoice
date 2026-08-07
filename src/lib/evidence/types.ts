@@ -26,6 +26,10 @@ import type {
   CallDuration,
   FirstInteractionOutcome,
   ApplicationChannel,
+  SalaryHistoryStage,
+  SalaryProofType,
+  SalaryProofStage,
+  SalaryRangeDisclosed,
 } from "@/types/index";
 
 export type EvidenceFamily = "first_party" | "external";
@@ -71,6 +75,14 @@ export interface EvidenceItem {
    *  fields above: external_reports has no equivalent column. The basis of
    *  cohort filtering in evidence/cohort.ts. */
   applicationChannel: ApplicationChannel | null;
+  /** Compensation transparency & privacy (migration 0018). Same first-party
+   *  asymmetry again. null means the candidate did not answer and the item is
+   *  excluded from that metric — it is NOT the same as the explicit "never" /
+   *  "none" values, which are answers. Silence must never become evidence. */
+  salaryHistoryStage: SalaryHistoryStage | null;
+  salaryProofType: SalaryProofType | null;
+  salaryProofStage: SalaryProofStage | null;
+  salaryRangeDisclosed: SalaryRangeDisclosed | null;
 
   /** External only; null for first-party (which has no extraction step). */
   extractionConfidence: number | null;

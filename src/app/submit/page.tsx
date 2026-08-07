@@ -7,6 +7,12 @@ import Footer from "@/components/Footer";
 import type { HiringSubmission, ApplicationChannel } from "@/types/index";
 import { AlertTriangle, Check } from "lucide-react";
 import { normalizeCompanySlug } from "@/lib/company-slug";
+import type {
+  SalaryHistoryStage,
+  SalaryProofType,
+  SalaryProofStage,
+  SalaryRangeDisclosed,
+} from "@/types/index";
 import {
   DIMENSIONS,
   EMOTIONS,
@@ -49,6 +55,11 @@ interface FormState {
   first_interaction_outcome: FirstInteractionOutcome | "";
   reason: string;
   payment_flag: PaymentFlagOption | "";
+  /** Compensation privacy (0018). All optional; "" means unanswered → null. */
+  salary_history_stage: SalaryHistoryStage | "";
+  salary_proof_type: SalaryProofType | "";
+  salary_proof_stage: SalaryProofStage | "";
+  salary_range_disclosed: SalaryRangeDisclosed | "";
   /** Optional Likert facet ratings (1–5), keyed by facet_key. Absent = not rated.
    *  Everything here is optional: evidence acquisition is the bottleneck, so a
    *  contributor who fills nothing still submits a valid Family A report. */
@@ -83,6 +94,7 @@ const EMPTY: FormState = {
   response_time_bucket: "", last_interaction_gap: "",
   call_duration: "", first_interaction_outcome: "",
   reason: "", payment_flag: "",
+  salary_history_stage: "", salary_proof_type: "", salary_proof_stage: "", salary_range_disclosed: "",
   ratings: {}, emotions: [],
 };
 
@@ -203,6 +215,11 @@ export default function SubmitPage() {
       first_interaction_outcome: form.first_interaction_outcome as FirstInteractionOutcome,
       reason: form.reason,
       payment_flag: form.payment_flag !== "no",
+      // "" means unanswered — send null so the column stays null, never "no".
+      salary_history_stage: form.salary_history_stage || null,
+      salary_proof_type: form.salary_proof_type || null,
+      salary_proof_stage: form.salary_proof_stage || null,
+      salary_range_disclosed: form.salary_range_disclosed || null,
       is_approved: false,
     };
 
@@ -491,6 +508,58 @@ export default function SubmitPage() {
                   <option value="after_interview">After interview</option>
                   <option value="training_fee">Training fee</option>
                 </select>
+              </div>
+
+              {/* Compensation transparency & privacy (migration 0018). All optional
+                  — "Prefer not to say" leaves the column null, which every metric
+                  treats as ineligible rather than as a "no". */}
+              <div className="border-t border-rule pt-5 space-y-5">
+                <p className="text-xs text-ink-muted">
+                  Salary practices <span className="text-ink-faint">— optional, but this is the data candidates most often say they wish they&apos;d had.</span>
+                </p>
+                <div>
+                  <label htmlFor="salary-history" className={LABEL_CLS}>Were you asked for your current/previous salary?</label>
+                  <select id="salary-history" value={form.salary_history_stage} onChange={(e) => set("salary_history_stage", e.target.value as FormState["salary_history_stage"])} className={SELECT_CLS}>
+                    <option value="">Prefer not to say</option>
+                    <option value="never">Never asked</option>
+                    <option value="application">In the application form</option>
+                    <option value="screening">At screening</option>
+                    <option value="interview">During interviews</option>
+                    <option value="offer">At offer stage</option>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="salary-proof" className={LABEL_CLS}>Were you asked for proof of salary?</label>
+                  <select id="salary-proof" value={form.salary_proof_type} onChange={(e) => set("salary_proof_type", e.target.value as FormState["salary_proof_type"])} className={SELECT_CLS}>
+                    <option value="">Prefer not to say</option>
+                    <option value="none">No documents requested</option>
+                    <option value="payslip">Payslip</option>
+                    <option value="bank_statement">Bank statement</option>
+                    <option value="tax_document">Tax document (e.g. Form 16)</option>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="salary-proof-stage" className={LABEL_CLS}>When was that proof requested?</label>
+                  <select id="salary-proof-stage" value={form.salary_proof_stage} onChange={(e) => set("salary_proof_stage", e.target.value as FormState["salary_proof_stage"])} className={SELECT_CLS}>
+                    <option value="">Prefer not to say</option>
+                    <option value="none">Never requested</option>
+                    <option value="screening">At screening</option>
+                    <option value="interview">During interviews</option>
+                    <option value="before_offer">Before a written offer</option>
+                    <option value="after_offer">After a written offer</option>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="salary-range" className={LABEL_CLS}>Did they share the salary range?</label>
+                  <select id="salary-range" value={form.salary_range_disclosed} onChange={(e) => set("salary_range_disclosed", e.target.value as FormState["salary_range_disclosed"])} className={SELECT_CLS}>
+                    <option value="">Prefer not to say</option>
+                    <option value="in_posting">Yes — in the job posting</option>
+                    <option value="before_first">Before the first interview</option>
+                    <option value="before_final">Before the final round</option>
+                    <option value="at_offer">Only at offer</option>
+                    <option value="never">Never shared</option>
+                  </select>
+                </div>
               </div>
             </div>
           )}

@@ -95,12 +95,45 @@ function validateEmotions(raw: unknown): { ok: true; value: EmotionInput[] } | {
  * garbage into a field the cohort filter later trusts as an enum.
  */
 function validateApplicationChannel(raw: unknown): { ok: true; value: ApplicationChannel | null } | { ok: false; error: string } {
-  if (raw === undefined || raw === null || raw === "") return { ok: true, value: null };
-  if (typeof raw !== "string" || !VALID_APPLICATION_CHANNELS.includes(raw)) {
-    return { ok: false, error: `unknown application_channel: ${String(raw)}` };
-  }
-  return { ok: true, value: raw as ApplicationChannel };
+  const r = validateOptionalEnum(raw, VALID_APPLICATION_CHANNELS, "application_channel");
+  return r.ok ? { ok: true, value: r.value as ApplicationChannel | null } : r;
 }
+
+/**
+ * Optional-enum validator: absent/empty is VALID and yields null; only a
+ * present-but-unrecognized value is an error. Same contract
+ * validateApplicationChannel established — generalized so the four
+ * compensation-privacy fields (migration 0018) don't each need a clone.
+ *
+ * null here means "not answered" and stays null all the way to the column, so
+ * the Evidence Engine can exclude it. It is NEVER coerced to "never"/"none",
+ * which are real answers (see 0018's header).
+ */
+function validateOptionalEnum(
+  raw: unknown,
+  allowed: readonly string[],
+  field: string
+): { ok: true; value: string | null } | { ok: false; error: string } {
+  if (raw === undefined || raw === null || raw === "") return { ok: true, value: null };
+  if (typeof raw !== "string" || !allowed.includes(raw)) {
+    return { ok: false, error: `unknown ${field}: ${String(raw)}` };
+  }
+  return { ok: true, value: raw };
+}
+
+// Compensation transparency & privacy (migration 0018). Mirrors the CHECK
+// constraints; tests/submit-validators.test.ts asserts the three-way sync.
+const VALID_SALARY_HISTORY_STAGES = ["never", "application", "screening", "interview", "offer"];
+const VALID_SALARY_PROOF_TYPES = ["none", "payslip", "bank_statement", "tax_document"];
+const VALID_SALARY_PROOF_STAGES = ["none", "screening", "interview", "before_offer", "after_offer"];
+const VALID_SALARY_RANGE_DISCLOSURES = ["in_posting", "before_first", "before_final", "at_offer", "never"];
+
+const SALARY_FIELDS: { key: string; allowed: readonly string[] }[] = [
+  { key: "salary_history_stage", allowed: VALID_SALARY_HISTORY_STAGES },
+  { key: "salary_proof_type", allowed: VALID_SALARY_PROOF_TYPES },
+  { key: "salary_proof_stage", allowed: VALID_SALARY_PROOF_STAGES },
+  { key: "salary_range_disclosed", allowed: VALID_SALARY_RANGE_DISCLOSURES },
+];
 
 /**
  * Resolve the submitted company slug to a canonical organization, creating one
@@ -226,11 +259,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: channelValidation.error }, { status: 400 });
     }
 
+    // Compensation privacy (0018) — all optional; absent stays null.
+    const salaryValues: Record<string, string | null> = {};
+    for (const f of SALARY_FIELDS) {
+      const r = validateOptionalEnum((body as Record<string, unknown>)[f.key], f.allowed, f.key);
+      if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
+      salaryValues[f.key] = r.value;
+    }
+
     const payload: SubmissionInsert = {
       company: normalizeCompanySlug(sanitizeAndTruncate(String(body.company ?? ""), 100)),
       role: sanitizeAndTruncate(String(body.role ?? ""), FIELD_LIMITS.ROLE_TITLE),
       experience_bucket: body.experience_bucket,
       application_channel: channelValidation.value,
+      ...salaryValues,
       stage: body.stage,
       outcome: body.outcome,
       response_time_bucket: body.response_time_bucket,

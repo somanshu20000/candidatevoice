@@ -27,6 +27,10 @@ function item(fields: Partial<EvidenceItem> & Pick<EvidenceItem, "id" | "family"
     callDuration: null,
     firstInteractionOutcome: null,
     applicationChannel: null,
+    salaryHistoryStage: null,
+    salaryProofType: null,
+    salaryProofStage: null,
+    salaryRangeDisclosed: null,
     extractionConfidence: null,
     ...fields,
   };

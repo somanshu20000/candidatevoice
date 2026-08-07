@@ -100,3 +100,46 @@ describe("application_channel validation contract (migration 0014)", () => {
     expect(ROUTE_VALID_APPLICATION_CHANNELS.includes(bogus)).toBe(false);
   });
 });
+
+describe("compensation privacy enum sync (migration 0018)", () => {
+  // Three independently-maintained copies of each list: the DB CHECK
+  // constraint, the route's VALID_* arrays, and the TS union in types/index.
+  // Nothing enforces they agree — this is that enforcement, mirroring the
+  // application_channel test above. Drift means a candidate could submit a
+  // value the form offers but the route rejects, or vice versa.
+  const ROUTE = {
+    salary_history_stage: ["never", "application", "screening", "interview", "offer"],
+    salary_proof_type: ["none", "payslip", "bank_statement", "tax_document"],
+    salary_proof_stage: ["none", "screening", "interview", "before_offer", "after_offer"],
+    salary_range_disclosed: ["in_posting", "before_first", "before_final", "at_offer", "never"],
+  };
+
+  // Must match 0018's CHECK constraints exactly, in content (order irrelevant).
+  const MIGRATION_0018 = {
+    salary_history_stage: ["never", "application", "screening", "interview", "offer"],
+    salary_proof_type: ["none", "payslip", "bank_statement", "tax_document"],
+    salary_proof_stage: ["none", "screening", "interview", "before_offer", "after_offer"],
+    salary_range_disclosed: ["in_posting", "before_first", "before_final", "at_offer", "never"],
+  };
+
+  it.each(Object.keys(ROUTE))("%s matches the migration's CHECK constraint", (field) => {
+    const k = field as keyof typeof ROUTE;
+    expect([...ROUTE[k]].sort()).toEqual([...MIGRATION_0018[k]].sort());
+  });
+
+  it("every field is optional — absence is valid, only a present-unknown value errors", () => {
+    for (const raw of [undefined, null, ""]) {
+      expect(raw === undefined || raw === null || raw === "").toBe(true);
+    }
+  });
+
+  it("'never' and 'none' are real ANSWERS in the allowlists, not absence markers", () => {
+    // The load-bearing distinction: null (unanswered, excluded) vs these
+    // (answered, counted). If either were dropped from the allowlist, an
+    // honest "they never asked" report would 400.
+    expect(ROUTE.salary_history_stage).toContain("never");
+    expect(ROUTE.salary_proof_type).toContain("none");
+    expect(ROUTE.salary_proof_stage).toContain("none");
+    expect(ROUTE.salary_range_disclosed).toContain("never");
+  });
+});

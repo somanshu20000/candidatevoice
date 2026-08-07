@@ -13,6 +13,10 @@ import type {
   CallDuration,
   FirstInteractionOutcome,
   ApplicationChannel,
+  SalaryHistoryStage,
+  SalaryProofType,
+  SalaryProofStage,
+  SalaryRangeDisclosed,
 } from "@/types/index";
 import type { EvidenceItem } from "./types";
 import type { RawFirstPartyRow, RawExternalRow } from "./load";
@@ -26,6 +30,13 @@ const LAST_INTERACTION_GAPS: readonly string[] = ["0-7", "8-14", "15-30", "30+"]
 const CALL_DURATIONS: readonly string[] = ["<2", "2-5", "5-15", "15+", "na"];
 const FIRST_INTERACTION_OUTCOMES: readonly string[] = ["continued", "rejected_immediately", "na"];
 const APPLICATION_CHANNELS: readonly string[] = ["referral", "recruiter_outreach", "job_board", "company_website", "other"];
+// Compensation transparency & privacy (migration 0018). Note "never"/"none"
+// are real ANSWERS here, not absence — an unanswered field arrives as null and
+// asEnum keeps it null, which every metric treats as ineligible.
+const SALARY_HISTORY_STAGES: readonly string[] = ["never", "application", "screening", "interview", "offer"];
+const SALARY_PROOF_TYPES: readonly string[] = ["none", "payslip", "bank_statement", "tax_document"];
+const SALARY_PROOF_STAGES: readonly string[] = ["none", "screening", "interview", "before_offer", "after_offer"];
+const SALARY_RANGE_DISCLOSURES: readonly string[] = ["in_posting", "before_first", "before_final", "at_offer", "never"];
 
 /**
  * Narrow a raw string to its enum type, or null. The DB's own CHECK
@@ -71,6 +82,10 @@ export function normalizeFirstParty(rows: RawFirstPartyRow[]): EvidenceItem[] {
       callDuration: asEnum<CallDuration>(r.call_duration, CALL_DURATIONS),
       firstInteractionOutcome: asEnum<FirstInteractionOutcome>(r.first_interaction_outcome, FIRST_INTERACTION_OUTCOMES),
       applicationChannel: asEnum<ApplicationChannel>(r.application_channel, APPLICATION_CHANNELS),
+      salaryHistoryStage: asEnum<SalaryHistoryStage>(r.salary_history_stage, SALARY_HISTORY_STAGES),
+      salaryProofType: asEnum<SalaryProofType>(r.salary_proof_type, SALARY_PROOF_TYPES),
+      salaryProofStage: asEnum<SalaryProofStage>(r.salary_proof_stage, SALARY_PROOF_STAGES),
+      salaryRangeDisclosed: asEnum<SalaryRangeDisclosed>(r.salary_range_disclosed, SALARY_RANGE_DISCLOSURES),
       extractionConfidence: null, // first-party has no extraction step
     }));
 }
@@ -113,6 +128,10 @@ export function normalizeExternal(rows: RawExternalRow[], globalMultiplier: numb
         callDuration: null,
         firstInteractionOutcome: null,
         applicationChannel: null,
+        salaryHistoryStage: null,
+        salaryProofType: null,
+        salaryProofStage: null,
+        salaryRangeDisclosed: null,
         extractionConfidence,
       };
     });

@@ -42,6 +42,10 @@ function evidenceItem(fields: Partial<EvidenceItem> & Pick<EvidenceItem, "id" | 
     callDuration: null,
     firstInteractionOutcome: null,
     applicationChannel: null,
+    salaryHistoryStage: null,
+    salaryProofType: null,
+    salaryProofStage: null,
+    salaryRangeDisclosed: null,
     extractionConfidence: null,
     ...fields,
   };
@@ -61,6 +65,10 @@ function rawFirstPartyRow(fields: Partial<RawFirstPartyRow> & Pick<RawFirstParty
     payment_flag: null,
     reported_month: null,
     application_channel: null,
+    salary_history_stage: null,
+    salary_proof_type: null,
+    salary_proof_stage: null,
+    salary_range_disclosed: null,
     ...fields,
   };
 }

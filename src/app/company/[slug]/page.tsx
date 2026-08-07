@@ -17,6 +17,8 @@ import type { EvidenceItem, ExternalReportDisplayRow, CohortFilter } from "@/lib
 import { buildBehaviouralFingerprint, BEHAVIOURAL_DIMENSION_LABELS } from "@/lib/fingerprint/behavioural";
 import type { BehaviouralDimensionScore } from "@/lib/fingerprint/behavioural";
 import { buildForecast, hasAnyForecast } from "@/lib/fingerprint/forecast";
+import { buildCompensationProfile, computePrivacyScore } from "@/lib/fingerprint/compensation";
+import type { CompensationProfile, PrivacyScoreResult } from "@/lib/fingerprint/compensation";
 import { buildActionPlan } from "@/lib/fingerprint/actions";
 import type { ActionPlan, ActionTone } from "@/lib/fingerprint/actions";
 import type { ForecastLine, ForecastTone } from "@/lib/fingerprint/forecast";
@@ -285,6 +287,54 @@ function ForecastPanel({
   );
 }
 
+/**
+ * Compensation Transparency & Privacy. Renders only when at least one
+ * dimension survived suppression — an empty panel would imply we looked and
+ * found nothing, when in fact nobody has reported yet.
+ *
+ * Copy is deliberately jurisdiction-neutral: salary-history rules vary by
+ * country and state, so we report what companies DID and never say what is
+ * illegal. "No range shared" is an observation; it is never "refused".
+ */
+function CompensationPanel({ profile, score }: { profile: CompensationProfile; score: PrivacyScoreResult | null }) {
+  const shown = profile.dimensions.filter((d) => !d.suppressed && d.score !== null);
+  if (shown.length === 0) return null;
+  const tone = score === null ? "text-ink" : score.tier === "strong" ? "text-good" : score.tier === "mixed" ? "text-warn" : "text-bad";
+  return (
+    <section className="border border-rule bg-paper-sheet rounded-sm p-6 sm:p-8 mb-8 shadow-sheet">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
+        <h2 className="font-serif text-lg sm:text-xl text-ink">Pay transparency &amp; privacy</h2>
+        {score && (
+          <span className={`font-serif text-2xl tnum ${tone}`}>
+            {score.score}<span className="text-xs text-ink-faint font-sans">/100</span>
+          </span>
+        )}
+      </div>
+      <p className="text-xs text-ink-muted mb-5">
+        What candidates reported about salary questions and document requests. Higher is more privacy-respecting.
+      </p>
+      <div className="space-y-2.5">
+        {shown.map((d) => (
+          <div key={d.key} className="flex items-baseline justify-between gap-3 py-2 border-b border-rule last:border-0">
+            <span className="text-sm text-ink-soft">{d.label}</span>
+            <span className="text-right shrink-0">
+              <span className="font-mono text-sm text-ink tnum">{Math.round(d.score!)}</span>
+              <span className="block text-[10px] font-mono text-ink-faint tnum">
+                {d.metric.rawNumerator} of {d.metric.rawDenominator} reports
+              </span>
+            </span>
+          </div>
+        ))}
+      </div>
+      <p className="text-[10px] text-ink-faint mt-4 leading-relaxed">
+        Salary-history rules vary by jurisdiction — restricted in some, lawful in others.
+        CandidateVoice reports what companies did, and does not give legal advice.
+        Reports where a candidate skipped a question are excluded, never counted as a &ldquo;no&rdquo;.
+      </p>
+    </section>
+  );
+}
+
 const ACTION_TONE: Record<ActionTone, { dot: string; text: string }> = {
   risk: { dot: "bg-bad", text: "text-bad" },
   caution: { dot: "bg-warn", text: "text-warn" },
@@ -516,8 +566,11 @@ export default async function CompanyPage({ params, searchParams }: Props) {
   const hqs = computeHqs(fingerprint);
   const forecastLines = buildForecast(fingerprint, items);
   const forecastAvailable = hasAnyForecast(forecastLines);
+  // Compensation transparency & privacy (0018) — same engine, own reduction.
+  const compensation = buildCompensationProfile(items);
+  const privacyScore = computePrivacyScore(compensation);
   // The decision layer over the same fingerprint + HQS: verdict + grounded flags.
-  const actionPlan = buildActionPlan(fingerprint, hqs);
+  const actionPlan = buildActionPlan(fingerprint, hqs, compensation);
 
   // "Fit for you" — only when the visitor has saved priorities. Pure over the
   // fingerprint already built above, so a visitor with a preference vector pays
@@ -572,6 +625,10 @@ export default async function CompanyPage({ params, searchParams }: Props) {
             Shown whenever the forecast is — a verdict without the "what to expect"
             behind it would be an unsupported claim. */}
         {forecastAvailable && <ActionPanel plan={actionPlan} />}
+
+        {/* Pay transparency & privacy — self-suppressing: renders nothing until
+            at least one dimension clears its floor. */}
+        <CompensationPanel profile={compensation} score={privacyScore} />
 
         {/* Personalised answer, when the visitor has set priorities. */}
         {fitForYou && fitExplanation && (

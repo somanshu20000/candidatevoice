@@ -18,6 +18,48 @@
 
 import type { BehaviouralFingerprint, BehaviouralDimensionKey } from "./behavioural";
 import type { HqsResult } from "@/utils/hqs";
+import type { CompensationProfile, CompensationDimensionKey } from "./compensation";
+
+/**
+ * Compensation-privacy red flags. Each fires only when a real, non-suppressed
+ * dimension shows the privacy-respecting rate BELOW a named threshold — i.e.
+ * most reporters experienced the invasive practice. Phrased as observations
+ * ("no salary range was shared"), never as intent ("refused to share"), and
+ * never as causation. See compensation.ts's three rules.
+ */
+const COMPENSATION_FLAGS: {
+  key: CompensationDimensionKey;
+  /** Fires when the privacy-respecting rate is at or below this. */
+  below: number;
+  label: string;
+  /** `bad` is the share that did NOT get the privacy-respecting outcome. */
+  detail: (badPct: string, num: number, den: number) => string;
+}[] = [
+  {
+    key: "document_privacy",
+    below: 0.8,
+    label: "Requests financial documents",
+    detail: (p, n, d) => `${p} were asked for bank statements or tax documents · ${n} of ${d} reports`,
+  },
+  {
+    key: "verification_timing",
+    below: 0.7,
+    label: "Verifies salary before any offer",
+    detail: (p, n, d) => `${p} were asked for proof before a written offer · ${n} of ${d} reports`,
+  },
+  {
+    key: "salary_history_privacy",
+    below: 0.5,
+    label: "Asks for salary history",
+    detail: (p, n, d) => `${p} were asked their current or previous salary · ${n} of ${d} reports`,
+  },
+  {
+    key: "range_transparency",
+    below: 0.4,
+    label: "Rarely shares the salary range up front",
+    detail: (p, n, d) => `${p} did not get a range before interviewing · ${n} of ${d} reports`,
+  },
+];
 
 export type ActionTone = "positive" | "caution" | "risk";
 
@@ -75,7 +117,13 @@ function basis(numerator: number, denominator: number): string {
  * per dimension only when it is non-suppressed and crosses a threshold, then
  * ordered risk → caution → positive so the most decision-relevant reads first.
  */
-export function buildActionPlan(fingerprint: BehaviouralFingerprint, hqs: HqsResult | null): ActionPlan {
+export function buildActionPlan(
+  fingerprint: BehaviouralFingerprint,
+  hqs: HqsResult | null,
+  /** Optional: when supplied, compensation-privacy red flags are added too
+   *  (migration 0018). Optional so every existing caller keeps working. */
+  compensation?: CompensationProfile
+): ActionPlan {
   const byKey = new Map(fingerprint.dimensions.map((d) => [d.key, d]));
   const rateOf = (key: BehaviouralDimensionKey): { rate: number; num: number; den: number } | null => {
     const d = byKey.get(key);
@@ -130,6 +178,24 @@ export function buildActionPlan(fingerprint: BehaviouralFingerprint, hqs: HqsRes
       items.push({ key: "response_speed", tone: "caution", label: "Slow to respond", detail: `response speed ${Math.round(speed.score)}/100 · ${speedBasis}` });
     } else if (speed.score >= RESPONSE_FAST_SCORE) {
       items.push({ key: "response_speed", tone: "positive", label: "Responds quickly", detail: `response speed ${Math.round(speed.score)}/100 · ${speedBasis}` });
+    }
+  }
+
+  // Compensation-privacy red flags (0018), only when that profile was supplied.
+  if (compensation) {
+    const compByKey = new Map(compensation.dimensions.map((d) => [d.key, d]));
+    for (const flag of COMPENSATION_FLAGS) {
+      const d = compByKey.get(flag.key);
+      if (!d || d.suppressed || d.metric.value === null) continue;
+      if (d.metric.value > flag.below) continue;
+      const badRate = 1 - d.metric.value;
+      const badCount = d.metric.rawDenominator - d.metric.rawNumerator;
+      items.push({
+        key: `comp_${flag.key}`,
+        tone: "risk",
+        label: flag.label,
+        detail: flag.detail(pct(badRate), badCount, d.metric.rawDenominator),
+      });
     }
   }
 

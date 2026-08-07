@@ -13,6 +13,26 @@ export type FirstInteractionOutcome = "continued" | "rejected_immediately" | "na
  * unanswered field.
  */
 export type ApplicationChannel = "referral" | "recruiter_outreach" | "job_board" | "company_website" | "other";
+
+/**
+ * Compensation transparency & privacy practices (migration 0018). All
+ * first-party only, all optional, and all CANDIDATE-KNOWABLE: each records
+ * something the candidate directly experienced during hiring, not something
+ * that requires having worked at the company.
+ *
+ * `null` means "did not answer" and is excluded from every metric. It is NOT
+ * the same as the explicit `"never"` / `"none"` values, which are answers.
+ * Conflating them would let silence manufacture either an accusation or a
+ * clean record — see 0018's header.
+ */
+/** At what point (if ever) previous/current salary was asked for. */
+export type SalaryHistoryStage = "never" | "application" | "screening" | "interview" | "offer";
+/** What documentary proof of salary was demanded — an invasiveness ladder. */
+export type SalaryProofType = "none" | "payslip" | "bank_statement" | "tax_document";
+/** When that proof was demanded. After a written offer is ordinary; during screening is not. */
+export type SalaryProofStage = "none" | "screening" | "interview" | "before_offer" | "after_offer";
+/** When the company disclosed ITS range — the other side of the asymmetry. */
+export type SalaryRangeDisclosed = "in_posting" | "before_first" | "before_final" | "at_offer" | "never";
 /**
  * The furthest stage a submission reached, as shown on a card.
  *
@@ -68,6 +88,12 @@ export interface HiringSubmission {
   reporter_type?: string;
   /** Optional — see ApplicationChannel. Migration 0014. */
   application_channel?: ApplicationChannel | null;
+  /** Compensation transparency & privacy (migration 0018). All optional;
+   *  null means unanswered, never "no". */
+  salary_history_stage?: SalaryHistoryStage | null;
+  salary_proof_type?: SalaryProofType | null;
+  salary_proof_stage?: SalaryProofStage | null;
+  salary_range_disclosed?: SalaryRangeDisclosed | null;
 }
 
 export type Database = {
