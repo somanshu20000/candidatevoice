@@ -55,7 +55,22 @@ interface FormState {
    *  Drives which later steps appear — see stepsFor(). Defaults to 'candidate'
    *  so the wizard behaves exactly as before unless the reporter changes it. */
   relationship: ReporterType;
+  /** The raw text the user typed — preserved as evidence regardless of which
+   *  organization (if any) they went on to confirm. Never used to resolve
+   *  identity; see company_organization_id. */
   company: string;
+  /** Set ONLY by an explicit "This is the company" click (migration 0021).
+   *  null means unconfirmed — canAdvance() blocks past step 1 without it
+   *  (or company_not_listed). The server re-verifies this id independently;
+   *  it is never trusted as-is. */
+  company_organization_id: string | null;
+  /** Display name of the confirmed organization, for the locked summary UI. */
+  company_confirmed_name: string | null;
+  /** Explicit "Company isn't listed" choice — an alternative way to satisfy
+   *  the confirmation requirement without an organization_id. */
+  company_not_listed: boolean;
+  /** Optional, only used alongside company_not_listed — feeds company_requests. */
+  company_request_domain: string;
   role: string;
   experience_bucket: ExperienceBucket | "";
   /** Optional — unlike every other field, skipping this must not block submission.
@@ -146,7 +161,9 @@ const WARNING = (
 
 const EMPTY: FormState = {
   relationship: "candidate",
-  company: "", role: "", experience_bucket: "", application_channel: "",
+  company: "", company_organization_id: null, company_confirmed_name: null,
+  company_not_listed: false, company_request_domain: "",
+  role: "", experience_bucket: "", application_channel: "",
   stage: "", outcome: "",
   response_time_bucket: "", last_interaction_gap: "",
   call_duration: "", first_interaction_outcome: "",
@@ -156,6 +173,187 @@ const EMPTY: FormState = {
   would_recommend: "", tenure_bucket: "", conduct_environment: "",
   ratings: {}, emotions: [],
 };
+
+interface RankedCandidate {
+  organizationId: string;
+  displayName: string;
+  slug: string;
+  score: number;
+  matchReason: string;
+  website: string | null;
+  logoUrl: string;
+}
+
+/**
+ * Company discovery + explicit confirmation (migration 0021). NEVER writes
+ * organization_id itself — it only searches and lets the user confirm, and
+ * the parent's canAdvance() blocks progress until either a confirmation or
+ * an explicit "isn't listed" choice exists. /api/submit re-verifies whatever
+ * id this eventually produces; nothing here is trusted as final.
+ */
+function CompanyPicker({
+  query,
+  organizationId,
+  confirmedName,
+  notListed,
+  requestDomain,
+  onQueryChange,
+  onConfirm,
+  onChangeSelection,
+  onToggleNotListed,
+  onRequestDomainChange,
+}: {
+  query: string;
+  organizationId: string | null;
+  confirmedName: string | null;
+  notListed: boolean;
+  requestDomain: string;
+  onQueryChange: (v: string) => void;
+  onConfirm: (organizationId: string, displayName: string) => void;
+  onChangeSelection: () => void;
+  onToggleNotListed: (v: boolean) => void;
+  onRequestDomainChange: (v: string) => void;
+}) {
+  const [candidates, setCandidates] = useState<RankedCandidate[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchFailed, setSearchFailed] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
+
+  useEffect(() => {
+    if (organizationId || notListed) return; // already resolved — no need to search
+    const q = query.trim();
+    if (q.length < 2) {
+      setCandidates([]);
+      setHasSearched(false);
+      return;
+    }
+    let cancelled = false;
+    setSearching(true);
+    setSearchFailed(false);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/company-search?q=${encodeURIComponent(q)}`);
+        if (!res.ok) throw new Error("search failed");
+        const body = (await res.json()) as { candidates?: RankedCandidate[] };
+        if (!cancelled) setCandidates(body.candidates ?? []);
+      } catch {
+        if (!cancelled) setSearchFailed(true);
+      } finally {
+        if (!cancelled) {
+          setSearching(false);
+          setHasSearched(true);
+        }
+      }
+    }, 300); // debounce — search-as-you-type without hammering the route
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [query, organizationId, notListed]);
+
+  // --- Locked / confirmed state ---------------------------------------------
+  if (organizationId && confirmedName) {
+    return (
+      <div>
+        <label className={LABEL_CLS}>Company</label>
+        <div className="flex items-center justify-between gap-3 border border-good/40 bg-[#E8F0EA] rounded-sm px-3.5 py-2.5">
+          <span className="text-sm text-ink flex items-center gap-2">
+            <Check className="h-4 w-4 text-good shrink-0" />
+            {confirmedName}
+          </span>
+          <button type="button" onClick={onChangeSelection} className="text-xs font-mono uppercase tracking-wider text-accent hover:text-accent-hover shrink-0">
+            Change
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // --- "Company isn't listed" state -----------------------------------------
+  if (notListed) {
+    return (
+      <div>
+        <label className={LABEL_CLS}>Company</label>
+        <div className="border border-rule bg-paper rounded-sm p-3.5 space-y-3">
+          <p className="text-xs text-ink-soft">
+            <span className="font-medium text-ink">{query || "This company"}</span> will be recorded as
+            reported and queued for a moderator to add — your report is not blocked on that review.
+          </p>
+          <div>
+            <label htmlFor="company-request-domain" className="block text-[10px] font-mono uppercase tracking-wider text-ink-muted mb-1">
+              Company website <span className="text-ink-faint normal-case">(optional, helps us find it)</span>
+            </label>
+            <input
+              id="company-request-domain"
+              type="text"
+              value={requestDomain}
+              onChange={(e) => onRequestDomainChange(e.target.value)}
+              placeholder="e.g. example.com"
+              className={INPUT_CLS}
+            />
+          </div>
+          <button type="button" onClick={() => onToggleNotListed(false)} className="text-xs font-mono uppercase tracking-wider text-accent hover:text-accent-hover">
+            ← Search again
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // --- Search state -----------------------------------------------------------
+  return (
+    <div>
+      <label htmlFor="company" className={LABEL_CLS}>Company name</label>
+      <input
+        id="company"
+        type="text"
+        value={query}
+        onChange={(e) => onQueryChange(e.target.value)}
+        placeholder="e.g. Razorpay"
+        className={INPUT_CLS}
+        autoComplete="off"
+      />
+      {query.trim().length >= 2 && (
+        <div className="mt-2.5 border border-rule bg-paper-sheet rounded-sm divide-y divide-rule">
+          {searching ? (
+            <p className="text-xs text-ink-faint px-3.5 py-3">Searching…</p>
+          ) : searchFailed ? (
+            <p className="text-xs text-bad px-3.5 py-3">Search is temporarily unavailable — you can still continue below.</p>
+          ) : candidates.length > 0 ? (
+            candidates.map((c) => (
+              <div key={c.organizationId} className="flex items-center gap-3 px-3.5 py-3">
+                {/* eslint-disable-next-line @next/next/no-img-element -- logo route serves arbitrary storage-backed images, not a static import */}
+                <img src={c.logoUrl} alt="" className="h-8 w-8 rounded-sm border border-rule object-contain shrink-0 bg-paper" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-ink truncate">{c.displayName}</p>
+                  {c.website && <p className="text-[11px] text-ink-faint truncate">{c.website.replace(/^https?:\/\//, "")}</p>}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onConfirm(c.organizationId, c.displayName)}
+                  className="text-xs font-medium bg-accent text-paper-sheet px-3 py-1.5 rounded-sm hover:bg-accent-hover transition-colors shrink-0 whitespace-nowrap"
+                >
+                  This is the company
+                </button>
+              </div>
+            ))
+          ) : hasSearched ? (
+            <div className="px-3.5 py-3">
+              <p className="text-xs text-ink-muted mb-2">No confident match for &ldquo;{query}&rdquo;.</p>
+              <button type="button" onClick={() => onToggleNotListed(true)} className="text-xs font-mono uppercase tracking-wider text-accent hover:text-accent-hover">
+                Company isn&apos;t listed →
+              </button>
+            </div>
+          ) : null}
+        </div>
+      )}
+      <p className="text-xs text-ink-faint mt-1.5">
+        Search by name, common abbreviation, or paste the company&apos;s website. You&apos;ll confirm the
+        exact company before this report is attached to it.
+      </p>
+    </div>
+  );
+}
 
 /** One facet as a compact 1–5 scale, anchored by its low/high labels. Clicking
  *  the currently-selected value clears it (rating stays optional). */
@@ -256,7 +454,12 @@ export default function SubmitPage() {
   }
 
   function canAdvance(): boolean {
-    if (stepKey === "basics") return form.company.trim() !== "" && form.role.trim() !== "" && form.experience_bucket !== "";
+    if (stepKey === "basics")
+      return (
+        (form.company_organization_id !== null || form.company_not_listed) &&
+        form.role.trim() !== "" &&
+        form.experience_bucket !== ""
+      );
     if (stepKey === "process") return form.stage !== "" && form.outcome !== "";
     if (stepKey === "timeline") return form.response_time_bucket !== "" && form.last_interaction_gap !== "" && form.call_duration !== "" && form.first_interaction_outcome !== "";
     if (stepKey === "details") return form.reason !== "" && form.payment_flag !== "";
@@ -274,6 +477,14 @@ export default function SubmitPage() {
     if (!normalizedCompany) {
       setSubmitting(false);
       setError("Company is required.");
+      return;
+    }
+    // Defense in depth — canAdvance() already blocks reaching this step
+    // without either a confirmed organization or an explicit "isn't listed"
+    // choice; this repeats the check at the point of the actual write.
+    if (!form.company_organization_id && !form.company_not_listed) {
+      setSubmitting(false);
+      setError("Please confirm the company before submitting.");
       return;
     }
 
@@ -325,7 +536,19 @@ export default function SubmitPage() {
     const response = await fetch("/api/submit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...payload, ratings, emotions }),
+      body: JSON.stringify({
+        ...payload,
+        ratings,
+        emotions,
+        // The confirmed organization_id (migration 0021) — the route
+        // re-verifies this independently; it is never trusted as-is. When
+        // the user chose "isn't listed" instead, organization_id is omitted
+        // and the route creates a company_requests row from company_not_listed
+        // + company_request_domain, exactly as if no match had been found.
+        organization_id: form.company_organization_id,
+        company_not_listed: form.company_not_listed,
+        company_request_domain: form.company_not_listed ? form.company_request_domain || null : null,
+      }),
     });
 
     setSubmitting(false);
@@ -478,17 +701,20 @@ export default function SubmitPage() {
           {/* Step 1 */}
           {stepKey === "basics" && (
             <div className="space-y-5">
-              <div>
-                <label htmlFor="company" className={LABEL_CLS}>Company name</label>
-                <input
-                  id="company"
-                  type="text"
-                  value={form.company}
-                  onChange={(e) => set("company", e.target.value)}
-                  placeholder="e.g. Razorpay"
-                  className={INPUT_CLS}
-                />
-              </div>
+              <CompanyPicker
+                query={form.company}
+                organizationId={form.company_organization_id}
+                confirmedName={form.company_confirmed_name}
+                notListed={form.company_not_listed}
+                requestDomain={form.company_request_domain}
+                onQueryChange={(v) => set("company", v)}
+                onConfirm={(organizationId, displayName) =>
+                  setForm((f) => ({ ...f, company_organization_id: organizationId, company_confirmed_name: displayName, company_not_listed: false }))
+                }
+                onChangeSelection={() => setForm((f) => ({ ...f, company_organization_id: null, company_confirmed_name: null }))}
+                onToggleNotListed={(v) => setForm((f) => ({ ...f, company_not_listed: v, company_organization_id: null, company_confirmed_name: null }))}
+                onRequestDomainChange={(v) => set("company_request_domain", v)}
+              />
               <div>
                 <label htmlFor="role" className={LABEL_CLS}>Role applied for</label>
                 <input

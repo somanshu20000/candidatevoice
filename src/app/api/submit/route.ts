@@ -155,81 +155,42 @@ const TENURE_FIELDS: { key: string; allowed: readonly string[] }[] = [
 ];
 
 /**
- * Resolve the submitted company slug to a canonical organization, creating one
- * if this is the first time this employer has ever been observed.
+ * Company identity (migration 0021). This route NEVER resolves an
+ * organization from free-text company input and NEVER silently creates one —
+ * that was the old resolveOrCreateOrganization behaviour, removed entirely.
+ * The client must have already run the confirmation flow
+ * (src/lib/company-intelligence/resolve.ts + submit/page.tsx's CompanyPicker):
+ * a human clicked "This is the company" on a specific organization_id, or
+ * explicitly chose "Company isn't listed."
  *
- * WHY THIS EXISTS. Until now this route never set organization_id, so every
- * new first-party submission had it NULL — meanwhile external_reports resolves
- * it at import time. The two evidence families keyed on different identifiers
- * and could not be joined (see docs/adr-0002-evidence-engine.md, blocker B2).
- * The Evidence Engine joins first-party and external evidence by
- * organization_id; this is the fix at the source.
- *
- * organizations is not in the hand-authored Database type (same reason as
- * src/lib/company-intelligence and src/lib/hiring-intel cast their clients),
- * so `client` is typed as the untyped SupabaseClient the caller casts to.
- *
- * FAIL-OPEN BY DESIGN. organization_id has always been nullable specifically
- * so a resolution hiccup can never cost a submission (see 0002_organizations.sql:
- * "Nullable on purpose... nothing is invisible while unresolved"). Any error
- * here is swallowed and returns null — the row still gets saved with its raw
- * `company` slug intact, evidence is never dropped over this.
- *
- * Mirrors createSupabaseCompanyStore.createOrganization in
- * src/lib/company-intelligence/store.ts: upsert with ignoreDuplicates guards
- * the race where two submissions for a brand-new employer arrive at once.
+ * This function only RE-VERIFIES the id the client claims to have confirmed —
+ * the displayed candidate list is advisory, this query is truth. A stale or
+ * fabricated id fails closed (returns false), not open.
  */
-async function resolveOrCreateOrganization(client: SupabaseClient, rawSlug: string): Promise<string | null> {
+async function verifyOrganizationId(client: SupabaseClient, organizationId: string): Promise<boolean> {
+  const { data, error } = await client.from("organizations").select("id").eq("id", organizationId).maybeSingle();
+  if (error) return false;
+  return data !== null;
+}
+
+/**
+ * "Company isn't listed" — writes to the moderation queue (company_requests),
+ * never to organizations directly. Best-effort: a failure here must never
+ * cost the submission it's attached to, same fail-open discipline the old
+ * resolveOrCreateOrganization used for organization_id itself.
+ */
+async function fileCompanyRequest(
+  client: SupabaseClient,
+  requestedName: string,
+  requestedDomain: string | null
+): Promise<void> {
   try {
-    const resolved = await client.rpc("resolve_organization", { p_slug: rawSlug });
-    if (resolved.error) throw resolved.error;
-    if (resolved.data) return resolved.data as string;
-
-    // No existing organization matches this slug, even canonicalized — this is
-    // the first time this employer name has been observed. Create it at its
-    // canonical slug, exactly as the Company Intelligence importer would.
-    const canonicalized = await client.rpc("canonicalize_slug", { p_slug: rawSlug });
-    if (canonicalized.error) throw canonicalized.error;
-    const canonicalSlug = canonicalized.data as string | null;
-    // A slug that canonicalizes to empty (pure punctuation/symbols) cannot back
-    // an organizations row — organizations_slug_length requires length >= 1.
-    if (!canonicalSlug) return null;
-
-    const displayName = canonicalSlug
-      .split("-")
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(" ");
-
-    const { error: upsertError } = await client
-      .from("organizations")
-      .upsert({ slug: canonicalSlug, display_name: displayName }, { onConflict: "slug", ignoreDuplicates: true });
-    if (upsertError) throw upsertError;
-
-    const { data: org, error: selectError } = await client
-      .from("organizations")
-      .select("id")
-      .eq("slug", canonicalSlug)
-      .maybeSingle();
-    if (selectError) throw selectError;
-    if (!org) return null;
-
-    // Record the as-submitted spelling as an alias if it differs from the
-    // canonical slug, so a future submission with this exact spelling resolves
-    // on branch 1 of resolve_organization() rather than falling through to
-    // re-canonicalizing every time. Best-effort — never blocks the submission.
-    if (rawSlug !== canonicalSlug) {
-      await client
-        .from("organization_aliases")
-        .upsert(
-          { alias_slug: rawSlug, organization_id: org.id, alias_source: "observed" },
-          { onConflict: "alias_slug", ignoreDuplicates: true }
-        );
-    }
-
-    return org.id as string;
+    await client.from("company_requests").insert({
+      requested_name: requestedName.slice(0, 200),
+      requested_domain: requestedDomain?.slice(0, 200) || null,
+    });
   } catch (err) {
-    console.error("[api/submit] organization resolution failed, submitting with organization_id=null:", err);
-    return null;
+    console.error("[api/submit] company_requests insert failed (submission still proceeds):", err);
   }
 }
 
@@ -249,7 +210,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const body = (await req.json()) as SubmissionInsert & { ratings?: unknown; emotions?: unknown };
+    const body = (await req.json()) as SubmissionInsert & {
+      ratings?: unknown;
+      emotions?: unknown;
+      /** Confirmed organization id from the search+confirm flow (0021). */
+      organization_id?: unknown;
+      company_not_listed?: unknown;
+      company_request_domain?: unknown;
+    };
 
     // Reporter relationship (migration 0019) — absent defaults to 'candidate',
     // matching submit_hiring_report's own coalesce, so an old client that never
@@ -353,14 +321,41 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing required fields." }, { status: 400 });
     }
 
-    const supabase = createAdminClient();
-    payload.organization_id = await resolveOrCreateOrganization(supabase as unknown as SupabaseClient, payload.company);
+    const supabase = createAdminClient() as unknown as SupabaseClient;
+
+    // Company identity (migration 0021) — never silently resolved or created.
+    // Exactly one of these two must be true: the client confirmed a specific
+    // organization, or explicitly said it isn't listed. Anything else is
+    // rejected — this is the server-side half of "never silently choose,"
+    // enforceable even if the submit UI's own guard were ever bypassed.
+    const rawOrgId = typeof body.organization_id === "string" ? body.organization_id : null;
+    const notListed = body.company_not_listed === true;
+    if (!rawOrgId && !notListed) {
+      return NextResponse.json({ error: "Please confirm the company before submitting." }, { status: 400 });
+    }
+    if (rawOrgId) {
+      // Re-verify. The candidate list the client saw is advisory; this query
+      // is truth — a stale, tampered, or fabricated id is rejected outright
+      // rather than silently falling back to null.
+      const valid = await verifyOrganizationId(supabase, rawOrgId);
+      if (!valid) {
+        return NextResponse.json({ error: "That company could not be verified. Please search again." }, { status: 400 });
+      }
+      payload.organization_id = rawOrgId;
+    } else {
+      payload.organization_id = null;
+      // Best-effort, non-blocking — uses the ORIGINAL typed text (before slug
+      // normalization) so a moderator sees "Anemoi Technologies", not
+      // "anemoi-technologies".
+      const requestedName = sanitizeAndTruncate(String(body.company ?? ""), 100);
+      const requestedDomain = typeof body.company_request_domain === "string" ? body.company_request_domain : null;
+      await fileCompanyRequest(supabase, requestedName, requestedDomain);
+    }
 
     // Atomic write via migration 0013's RPC — submission + ratings + emotions
     // in one transaction, so a Family B insert failure never leaves an
     // orphaned Family A row behind (or vice versa). Cast because the RPC is
-    // not in the hand-authored Database type — same pattern as
-    // resolveOrCreateOrganization above.
+    // not in the hand-authored Database type.
     const { error } = await (supabase as unknown as SupabaseClient).rpc("submit_hiring_report", {
       p_submission: payload,
       p_ratings: ratingsValidation.value,
