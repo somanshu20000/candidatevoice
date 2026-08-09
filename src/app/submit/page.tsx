@@ -12,6 +12,13 @@ import type {
   SalaryProofType,
   SalaryProofStage,
   SalaryRangeDisclosed,
+  ReporterType,
+  ExitExperienceLetter,
+  ExitSettlement,
+  ExitDocumentation,
+  WouldRecommend,
+  TenureBucket,
+  ConductEnvironment,
 } from "@/types/index";
 import {
   DIMENSIONS,
@@ -22,12 +29,16 @@ import {
 } from "@/lib/fingerprint/taxonomy";
 
 type ExperienceBucket = HiringSubmission["experience_bucket"];
-type Stage = HiringSubmission["stage"];
-type Outcome = HiringSubmission["outcome"];
-type ResponseTimeBucket = HiringSubmission["response_time_bucket"];
-type LastInteractionGap = HiringSubmission["last_interaction_gap"];
-type CallDuration = HiringSubmission["call_duration"];
-type FirstInteractionOutcome = HiringSubmission["first_interaction_outcome"];
+// NonNullable: these five became nullable at the DB/type level (migration
+// 0020) so a non-candidate report can omit them. The FORM never stores null
+// though — an unset field is "" until submit time, where it becomes null only
+// for a non-candidate relationship. See handleSubmit.
+type Stage = NonNullable<HiringSubmission["stage"]>;
+type Outcome = NonNullable<HiringSubmission["outcome"]>;
+type ResponseTimeBucket = NonNullable<HiringSubmission["response_time_bucket"]>;
+type LastInteractionGap = NonNullable<HiringSubmission["last_interaction_gap"]>;
+type CallDuration = NonNullable<HiringSubmission["call_duration"]>;
+type FirstInteractionOutcome = NonNullable<HiringSubmission["first_interaction_outcome"]>;
 type PaymentFlagOption = "no" | "before_interview" | "after_interview" | "training_fee";
 
 /** The likert dimensions a candidate can rate, in display order. Derived from the
@@ -40,6 +51,10 @@ const LIKERT_DIMENSIONS = DIMENSIONS.filter(
 const EMOTION_DIMENSION = DIMENSIONS.find((d) => d.measurement === "emotion") ?? null;
 
 interface FormState {
+  /** Which of the three relationships this report is (migration 0019).
+   *  Drives which later steps appear — see stepsFor(). Defaults to 'candidate'
+   *  so the wizard behaves exactly as before unless the reporter changes it. */
+  relationship: ReporterType;
   company: string;
   role: string;
   experience_bucket: ExperienceBucket | "";
@@ -60,6 +75,13 @@ interface FormState {
   salary_proof_type: SalaryProofType | "";
   salary_proof_stage: SalaryProofStage | "";
   salary_range_disclosed: SalaryRangeDisclosed | "";
+  /** Tenure-stage practices (migration 0019). All optional; "" → null. */
+  exit_experience_letter: ExitExperienceLetter | "";
+  exit_settlement: ExitSettlement | "";
+  exit_documentation: ExitDocumentation | "";
+  would_recommend: WouldRecommend | "";
+  tenure_bucket: TenureBucket | "";
+  conduct_environment: ConductEnvironment | "";
   /** Optional Likert facet ratings (1–5), keyed by facet_key. Absent = not rated.
    *  Everything here is optional: evidence acquisition is the bottleneck, so a
    *  contributor who fills nothing still submits a valid Family A report. */
@@ -68,7 +90,41 @@ interface FormState {
   emotions: EmotionKey[];
 }
 
-const STEP_LABELS = ["Company & Role", "Stage & Outcome", "Timeline", "Details", "Experience"];
+type StepKey = "basics" | "process" | "timeline" | "details" | "exit" | "culture" | "experience";
+
+/**
+ * Which steps appear, and in what order, depends entirely on `relationship` —
+ * the interview-specific steps (process/timeline/details, including the 0018
+ * salary questions, which are candidate-knowable by definition) only make
+ * sense for someone who actually interviewed. exit/culture are the tenure-stage
+ * counterparts (0019). `experience` (facet ratings + emotions) appears for
+ * everyone, but a candidate additionally sees the interview-specific facets —
+ * see the render logic for LIKERT_DIMENSIONS below.
+ */
+function stepsFor(relationship: ReporterType): { key: StepKey; label: string }[] {
+  if (relationship === "employee") {
+    return [
+      { key: "basics", label: "Company & Role" },
+      { key: "culture", label: "Culture & Conduct" },
+      { key: "experience", label: "Experience" },
+    ];
+  }
+  if (relationship === "former_employee") {
+    return [
+      { key: "basics", label: "Company & Role" },
+      { key: "exit", label: "Exit" },
+      { key: "culture", label: "Culture & Conduct" },
+      { key: "experience", label: "Experience" },
+    ];
+  }
+  return [
+    { key: "basics", label: "Company & Role" },
+    { key: "process", label: "Stage & Outcome" },
+    { key: "timeline", label: "Timeline" },
+    { key: "details", label: "Details" },
+    { key: "experience", label: "Experience" },
+  ];
+}
 
 const SELECT_CLS =
   "w-full bg-paper border border-rule text-ink-soft text-sm rounded-sm px-3 py-2.5 shadow-press focus:outline-none focus:border-accent transition-colors";
@@ -89,12 +145,15 @@ const WARNING = (
 );
 
 const EMPTY: FormState = {
+  relationship: "candidate",
   company: "", role: "", experience_bucket: "", application_channel: "",
   stage: "", outcome: "",
   response_time_bucket: "", last_interaction_gap: "",
   call_duration: "", first_interaction_outcome: "",
   reason: "", payment_flag: "",
   salary_history_stage: "", salary_proof_type: "", salary_proof_stage: "", salary_range_disclosed: "",
+  exit_experience_letter: "", exit_settlement: "", exit_documentation: "",
+  would_recommend: "", tenure_bucket: "", conduct_environment: "",
   ratings: {}, emotions: [],
 };
 
@@ -152,6 +211,20 @@ export default function SubmitPage() {
   /** Company slug of a completed submission; switches the page to the confirmation view. */
   const [submittedTo, setSubmittedTo] = useState<string | null>(null);
 
+  // The step list is a function of relationship (see stepsFor) — recomputed on
+  // every render rather than stored, so it can never drift from `form.relationship`.
+  const steps = stepsFor(form.relationship);
+  const stepKey = steps[step - 1]?.key ?? steps[0].key;
+
+  /** Switching relationship changes the step LIST, so any step index beyond the
+   *  new list's length would point at nothing — reset to the first step
+   *  (Company & Role, which every relationship shares) rather than clamp, since
+   *  clamping could otherwise land mid-way through an unrelated section. */
+  function setRelationship(next: ReporterType) {
+    setForm((f) => ({ ...f, relationship: next }));
+    setStep(1);
+  }
+
   useEffect(() => {
     const companyFromQuery = new URLSearchParams(window.location.search).get("company");
     if (!companyFromQuery) return;
@@ -183,13 +256,15 @@ export default function SubmitPage() {
   }
 
   function canAdvance(): boolean {
-    if (step === 1) return form.company.trim() !== "" && form.role.trim() !== "" && form.experience_bucket !== "";
-    if (step === 2) return form.stage !== "" && form.outcome !== "";
-    if (step === 3) return form.response_time_bucket !== "" && form.last_interaction_gap !== "" && form.call_duration !== "" && form.first_interaction_outcome !== "";
-    if (step === 4) return form.reason !== "" && form.payment_flag !== "";
-    // Step 5 (Experience) is entirely optional — always advanceable/submittable.
-    if (step === 5) return true;
-    return false;
+    if (stepKey === "basics") return form.company.trim() !== "" && form.role.trim() !== "" && form.experience_bucket !== "";
+    if (stepKey === "process") return form.stage !== "" && form.outcome !== "";
+    if (stepKey === "timeline") return form.response_time_bucket !== "" && form.last_interaction_gap !== "" && form.call_duration !== "" && form.first_interaction_outcome !== "";
+    if (stepKey === "details") return form.reason !== "" && form.payment_flag !== "";
+    // exit/culture/experience are entirely optional — evidence acquisition is
+    // the bottleneck (the same reasoning application_channel and the 0018
+    // salary questions already established), and every field here is
+    // first-party-only data nobody but this reporter can supply at all.
+    return true;
   }
 
   async function handleSubmit() {
@@ -202,24 +277,40 @@ export default function SubmitPage() {
       return;
     }
 
+    const isCandidate = form.relationship === "candidate";
+
     const payload: Omit<HiringSubmission, "id" | "created_at"> = {
       company: normalizedCompany,
       role: form.role.trim(),
       experience_bucket: form.experience_bucket as ExperienceBucket,
-      application_channel: form.application_channel === "" ? null : form.application_channel,
-      stage: form.stage as Stage,
-      outcome: form.outcome as Outcome,
-      response_time_bucket: form.response_time_bucket as ResponseTimeBucket,
-      last_interaction_gap: form.last_interaction_gap as LastInteractionGap,
-      call_duration: form.call_duration as CallDuration,
-      first_interaction_outcome: form.first_interaction_outcome as FirstInteractionOutcome,
-      reason: form.reason,
-      payment_flag: form.payment_flag !== "no",
+      reporter_type: form.relationship,
+      // The interview-specific fields below (through payment_flag) only apply
+      // to a candidate report — null for employee/former_employee, exactly as
+      // the route independently enforces server-side (defense in depth: even
+      // if this client-side branch had a bug, the route would still null them).
+      application_channel: isCandidate && form.application_channel !== "" ? form.application_channel : null,
+      stage: isCandidate ? (form.stage as Stage) : null,
+      outcome: isCandidate ? (form.outcome as Outcome) : null,
+      response_time_bucket: isCandidate ? (form.response_time_bucket as ResponseTimeBucket) : null,
+      last_interaction_gap: isCandidate ? (form.last_interaction_gap as LastInteractionGap) : null,
+      call_duration: isCandidate ? (form.call_duration as CallDuration) : null,
+      first_interaction_outcome: isCandidate ? (form.first_interaction_outcome as FirstInteractionOutcome) : null,
+      reason: isCandidate ? form.reason : null,
+      payment_flag: isCandidate && form.payment_flag !== "no",
       // "" means unanswered — send null so the column stays null, never "no".
-      salary_history_stage: form.salary_history_stage || null,
-      salary_proof_type: form.salary_proof_type || null,
-      salary_proof_stage: form.salary_proof_stage || null,
-      salary_range_disclosed: form.salary_range_disclosed || null,
+      // Compensation privacy (0018) is candidate-knowable only, per its own header.
+      salary_history_stage: isCandidate ? form.salary_history_stage || null : null,
+      salary_proof_type: isCandidate ? form.salary_proof_type || null : null,
+      salary_proof_stage: isCandidate ? form.salary_proof_stage || null : null,
+      salary_range_disclosed: isCandidate ? form.salary_range_disclosed || null : null,
+      // Tenure-stage practices (0019) — collectable from whichever relationship
+      // actually answered; "" (unanswered) stays null either way.
+      exit_experience_letter: form.exit_experience_letter || null,
+      exit_settlement: form.exit_settlement || null,
+      exit_documentation: form.exit_documentation || null,
+      would_recommend: form.would_recommend || null,
+      tenure_bucket: form.tenure_bucket || null,
+      conduct_environment: form.conduct_environment || null,
       is_approved: false,
     };
 
@@ -319,16 +410,48 @@ export default function SubmitPage() {
       <Navbar />
       <main className="max-w-2xl mx-auto px-4 py-14 w-full flex-1">
         <h1 className="font-serif text-3xl text-ink mb-2">Share Your Experience</h1>
-        <p className="text-sm text-ink-muted mb-10">Anonymous. No personal data stored.</p>
+        <p className="text-sm text-ink-muted mb-6">Anonymous. No personal data stored.</p>
+
+        {/* Relationship selector — decides which steps follow (stepsFor). Lives
+            outside the numbered wizard since changing it resets the step list. */}
+        <div className="mb-8" role="radiogroup" aria-label="Your relationship to this company">
+          <span className="block text-[10px] font-mono uppercase tracking-wider text-ink-muted mb-2">
+            Your experience is as someone who…
+          </span>
+          <div className="flex flex-wrap gap-2">
+            {(
+              [
+                { value: "candidate", label: "Interviewed here" },
+                { value: "employee", label: "Currently works here" },
+                { value: "former_employee", label: "Used to work here" },
+              ] as const
+            ).map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                role="radio"
+                aria-checked={form.relationship === opt.value}
+                onClick={() => setRelationship(opt.value)}
+                className={`px-3.5 py-2 text-sm rounded-sm border transition-colors ${
+                  form.relationship === opt.value
+                    ? "bg-accent border-accent text-paper-sheet"
+                    : "border-rule-strong text-ink-soft bg-paper-sheet hover:border-ink-faint"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
 
         {/* Progress bar */}
         <div className="flex items-center gap-0 mb-10">
-          {STEP_LABELS.map((label, i) => {
+          {steps.map((s, i) => {
             const num = i + 1;
             const active = num === step;
             const done = num < step;
             return (
-              <div key={label} className="flex items-center flex-1">
+              <div key={s.key} className="flex items-center flex-1">
                 <div className="flex flex-col items-center">
                   <div className={`h-7 w-7 rounded-full border flex items-center justify-center text-xs font-mono font-medium transition-colors
                     ${done ? "bg-accent border-accent text-paper-sheet" :
@@ -337,10 +460,10 @@ export default function SubmitPage() {
                     {done ? "✓" : num}
                   </div>
                   <span className={`text-[10px] font-mono mt-1.5 text-center ${active ? "text-accent" : "text-ink-faint"}`}>
-                    {label}
+                    {s.label}
                   </span>
                 </div>
-                {i < STEP_LABELS.length - 1 && (
+                {i < steps.length - 1 && (
                   <div className={`flex-1 h-px mx-1 mb-4 ${done ? "bg-accent" : "bg-rule-strong"}`} />
                 )}
               </div>
@@ -353,7 +476,7 @@ export default function SubmitPage() {
         <div className="border border-rule bg-paper-sheet rounded-sm p-7 mb-6 shadow-sheet">
 
           {/* Step 1 */}
-          {step === 1 && (
+          {stepKey === "basics" && (
             <div className="space-y-5">
               <div>
                 <label htmlFor="company" className={LABEL_CLS}>Company name</label>
@@ -413,7 +536,7 @@ export default function SubmitPage() {
           )}
 
           {/* Step 2 */}
-          {step === 2 && (
+          {stepKey === "process" && (
             <div className="space-y-5">
               <div>
                 <label htmlFor="stage" className={LABEL_CLS}>Stage reached</label>
@@ -440,7 +563,7 @@ export default function SubmitPage() {
           )}
 
           {/* Step 3 */}
-          {step === 3 && (
+          {stepKey === "timeline" && (
             <div className="space-y-5">
               <div>
                 <label htmlFor="response-time" className={LABEL_CLS}>Response time</label>
@@ -486,7 +609,7 @@ export default function SubmitPage() {
           )}
 
           {/* Step 4 */}
-          {step === 4 && (
+          {stepKey === "details" && (
             <div className="space-y-5">
               <div>
                 <label htmlFor="reason" className={LABEL_CLS}>Reason given</label>
@@ -564,8 +687,105 @@ export default function SubmitPage() {
             </div>
           )}
 
+          {/* Exit step (former_employee only) — offboarding.ts (migration 0019).
+              All optional; "Prefer not to say" leaves the column null, which
+              every metric treats as ineligible rather than as a "no". */}
+          {stepKey === "exit" && (
+            <div className="space-y-5">
+              <p className="text-xs text-ink-muted">
+                What happened when you left <span className="text-ink-faint">— this is the data most candidates say they wish they had before joining.</span>
+              </p>
+              <div>
+                <label htmlFor="exit-letter" className={LABEL_CLS}>Did you receive your experience / relieving letter?</label>
+                <select id="exit-letter" value={form.exit_experience_letter} onChange={(e) => set("exit_experience_letter", e.target.value as FormState["exit_experience_letter"])} className={SELECT_CLS}>
+                  <option value="">Prefer not to say</option>
+                  <option value="on_time">Yes, on time</option>
+                  <option value="delayed">Yes, but delayed</option>
+                  <option value="not_received">No, never received it</option>
+                  <option value="na">Doesn&apos;t apply to my exit</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="exit-settlement" className={LABEL_CLS}>Was your full-and-final settlement paid on time?</label>
+                <select id="exit-settlement" value={form.exit_settlement} onChange={(e) => set("exit_settlement", e.target.value as FormState["exit_settlement"])} className={SELECT_CLS}>
+                  <option value="">Prefer not to say</option>
+                  <option value="on_time">Yes, on time</option>
+                  <option value="delayed">Yes, but delayed</option>
+                  <option value="not_received">No, never received it</option>
+                  <option value="na">Doesn&apos;t apply to my exit</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="exit-docs" className={LABEL_CLS}>Was your exit documentation (relieving letter, F&amp;F statement, PF/tax paperwork) complete?</label>
+                <select id="exit-docs" value={form.exit_documentation} onChange={(e) => set("exit_documentation", e.target.value as FormState["exit_documentation"])} className={SELECT_CLS}>
+                  <option value="">Prefer not to say</option>
+                  <option value="complete">Complete</option>
+                  <option value="partial">Partial</option>
+                  <option value="none">None of it</option>
+                  <option value="na">Doesn&apos;t apply to my exit</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="tenure" className={LABEL_CLS}>How long did you work there?</label>
+                <select id="tenure" value={form.tenure_bucket} onChange={(e) => set("tenure_bucket", e.target.value as FormState["tenure_bucket"])} className={SELECT_CLS}>
+                  <option value="">Prefer not to say</option>
+                  <option value="0-1">0–1 years</option>
+                  <option value="1-3">1–3 years</option>
+                  <option value="3-5">3–5 years</option>
+                  <option value="5-8">5–8 years</option>
+                  <option value="8+">8+ years</option>
+                </select>
+              </div>
+            </div>
+          )}
+
+          {/* Culture step (employee + former_employee) — culture.ts +
+              conduct.ts (migration 0019). All optional. The conduct question is
+              deliberately a role-neutral environment scale, never about a named
+              person — see conduct.ts's header for why. */}
+          {stepKey === "culture" && (
+            <div className="space-y-5">
+              {form.relationship === "employee" && (
+                <div>
+                  <label htmlFor="tenure-emp" className={LABEL_CLS}>How long have you worked there?</label>
+                  <select id="tenure-emp" value={form.tenure_bucket} onChange={(e) => set("tenure_bucket", e.target.value as FormState["tenure_bucket"])} className={SELECT_CLS}>
+                    <option value="">Prefer not to say</option>
+                    <option value="0-1">0–1 years</option>
+                    <option value="1-3">1–3 years</option>
+                    <option value="3-5">3–5 years</option>
+                    <option value="5-8">5–8 years</option>
+                    <option value="8+">8+ years</option>
+                  </select>
+                </div>
+              )}
+              <div>
+                <label htmlFor="recommend" className={LABEL_CLS}>Would you recommend working here?</label>
+                <select id="recommend" value={form.would_recommend} onChange={(e) => set("would_recommend", e.target.value as FormState["would_recommend"])} className={SELECT_CLS}>
+                  <option value="">Prefer not to say</option>
+                  <option value="yes">Yes</option>
+                  <option value="maybe">Maybe, depends on the role</option>
+                  <option value="no">No</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="conduct" className={LABEL_CLS}>How would you describe the workplace environment?</label>
+                <select id="conduct" value={form.conduct_environment} onChange={(e) => set("conduct_environment", e.target.value as FormState["conduct_environment"])} className={SELECT_CLS}>
+                  <option value="">Prefer not to say</option>
+                  <option value="respectful">Respectful</option>
+                  <option value="mostly_ok">Mostly okay</option>
+                  <option value="some_concerns">Some concerns</option>
+                  <option value="serious_concerns">Serious concerns</option>
+                  <option value="na">Not sure / doesn&apos;t apply</option>
+                </select>
+                <p className="text-xs text-ink-faint mt-1.5">
+                  This is aggregated with other reports and never shown as a single individual account. It is not a substitute for reporting misconduct through a formal channel.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Step 5 — Experience ratings + emotions. Entirely optional. */}
-          {step === 5 && (
+          {stepKey === "experience" && (
             <div className="space-y-6">
               <div className="border border-rule bg-paper rounded-sm p-3.5">
                 <p className="text-xs text-ink-soft leading-relaxed">
@@ -575,7 +795,11 @@ export default function SubmitPage() {
                 </p>
               </div>
 
-              {LIKERT_DIMENSIONS.map((dim) => (
+              {/* These facets (recruiter conduct, interviewer prep, process
+                  clarity) describe an INTERVIEW — shown only to a candidate.
+                  An employee/former_employee never went through this process,
+                  so rating it would fabricate evidence they don't have. */}
+              {form.relationship === "candidate" && LIKERT_DIMENSIONS.map((dim) => (
                 <div key={dim.key}>
                   <h3 className="text-sm font-medium text-ink mb-1">{dim.label}</h3>
                   <div className="border border-rule bg-paper-sheet rounded-sm px-4 py-1">
@@ -640,7 +864,7 @@ export default function SubmitPage() {
             </button>
           ) : <div />}
 
-          {step < 5 ? (
+          {step < steps.length ? (
             <button
               onClick={() => setStep((s) => s + 1)}
               disabled={!canAdvance()}

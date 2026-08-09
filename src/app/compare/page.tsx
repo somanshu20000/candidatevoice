@@ -13,6 +13,7 @@ import { readCandidateVector, hasPreferences } from "@/lib/candidate/server";
 import { normalizeCompanySlug } from "@/lib/company-slug";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import Bar from "@/components/charts/Bar";
 
 export const dynamic = "force-dynamic"; // reads a per-visitor cookie
 
@@ -117,13 +118,58 @@ export default async function ComparePage({
           <span className="text-xs text-ink-faint">No reports yet</span>
         ),
     },
-    { label: "Hiring Quality Score", cell: (c) => (c.analytics?.hqs ? <span className="font-serif text-2xl text-ink tnum">{c.analytics.hqs.score}</span> : <span className="text-ink-faint">—</span>) },
+    {
+      label: "Hiring Quality Score",
+      cell: (c) =>
+        c.analytics?.hqs ? (
+          <div className="w-24">
+            <span className="font-serif text-2xl text-ink tnum">{c.analytics.hqs.score}</span>
+            <Bar value={c.analytics.hqs.score} tone={c.analytics.hqs.score >= 70 ? "good" : c.analytics.hqs.score >= 40 ? "warn" : "bad"} className="mt-1" />
+          </div>
+        ) : (
+          <span className="text-ink-faint">—</span>
+        ),
+    },
     ...(usePrefs
       ? [{ label: "Fit for you", cell: (c: Column) => (c.fit?.score != null ? <span className="font-serif text-xl text-ink tnum">{c.fit.score}</span> : <span className="text-ink-faint">—</span>) }]
       : []),
-    { label: "Ghosted", cell: (c) => <span className="tnum text-ink-soft">{pct(dimRate(c.analytics, "ghosting"))}</span> },
-    { label: "Got an offer", cell: (c) => <span className="tnum text-ink-soft">{pct(dimRate(c.analytics, "offer_probability"))}</span> },
-    { label: "Told why (transparency)", cell: (c) => <span className="tnum text-ink-soft">{pct(dimRate(c.analytics, "transparency"))}</span> },
+    {
+      label: "Ghosted",
+      cell: (c) => {
+        const rate = dimRate(c.analytics, "ghosting");
+        return (
+          <div className="w-24">
+            <span className="tnum text-ink-soft">{pct(rate)}</span>
+            {/* Ghosting: LOWER is better, so the bar is inverted (100 - rate) and keeps the same good/bad reading as every other bar on this page. */}
+            <Bar value={rate === null ? null : 100 * (1 - rate)} tone={rate === null ? "neutral" : rate <= 0.1 ? "good" : rate >= 0.25 ? "bad" : "warn"} className="mt-1" />
+          </div>
+        );
+      },
+    },
+    {
+      label: "Got an offer",
+      cell: (c) => {
+        const rate = dimRate(c.analytics, "offer_probability");
+        return (
+          <div className="w-24">
+            <span className="tnum text-ink-soft">{pct(rate)}</span>
+            <Bar value={rate === null ? null : 100 * rate} tone={rate === null ? "neutral" : rate >= 0.4 ? "good" : rate <= 0.15 ? "bad" : "warn"} className="mt-1" />
+          </div>
+        );
+      },
+    },
+    {
+      label: "Told why (transparency)",
+      cell: (c) => {
+        const rate = dimRate(c.analytics, "transparency");
+        return (
+          <div className="w-24">
+            <span className="tnum text-ink-soft">{pct(rate)}</span>
+            <Bar value={rate === null ? null : 100 * rate} tone={rate === null ? "neutral" : rate >= 0.7 ? "good" : rate <= 0.4 ? "bad" : "warn"} className="mt-1" />
+          </div>
+        );
+      },
+    },
     {
       label: "Evidence",
       cell: (c) =>

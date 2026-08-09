@@ -16,6 +16,8 @@ import {
   OFFER_GOOD_RATE,
 } from "@/lib/fingerprint/actions";
 import { buildBehaviouralFingerprint } from "@/lib/fingerprint/behavioural";
+import { buildOffboardingProfile } from "@/lib/fingerprint/offboarding";
+import { conductSignal } from "@/lib/fingerprint/conduct";
 import { computeHqs } from "@/utils/hqs";
 import { describeBase } from "@/lib/evidence";
 import type { EvidenceItem, EvidenceSet } from "@/lib/evidence";
@@ -41,6 +43,13 @@ function item(fields: Partial<EvidenceItem> & Pick<EvidenceItem, "id">): Evidenc
     salaryProofType: null,
     salaryProofStage: null,
     salaryRangeDisclosed: null,
+    reporterType: "candidate",
+    exitExperienceLetter: null,
+    exitSettlement: null,
+    exitDocumentation: null,
+    wouldRecommend: null,
+    tenureBucket: null,
+    conductEnvironment: null,
     extractionConfidence: null,
     ...fields,
   };
@@ -161,5 +170,77 @@ describe("sunset invariant", () => {
     // And the weighted percentage itself is unchanged (extract "NN%" from each detail).
     const pctOf = (items: typeof only.items) => items.map((i) => i.detail.match(/\d+%/)?.[0] ?? null);
     expect(pctOf(mixed.items)).toEqual(pctOf(only.items));
+  });
+});
+
+describe("tenure-stage wiring (migration 0019)", () => {
+  it("offboarding is opt-in — no exit_* flag without the profile, even with bad leaver evidence", () => {
+    const items = fixture(12, 5, 3); // the interview fixture only; no leaver rows at all
+    const fp = buildBehaviouralFingerprint(set(items));
+    const p = buildActionPlan(fp, computeHqs(fp)); // offboarding param omitted
+    expect(p.items.some((i) => i.key.startsWith("exit_"))).toBe(false);
+  });
+
+  it("emits an exit_ flag when leaver evidence clears the floor and the clean-exit rate is low", () => {
+    const interview = fixture(12, 5, 3);
+    const leavers: EvidenceItem[] = Array.from({ length: 6 }, (_, i) =>
+      item({ id: `l-${i}`, reporterType: "former_employee", exitExperienceLetter: "not_received" })
+    );
+    const all = [...interview, ...leavers];
+    const fp = buildBehaviouralFingerprint(set(all));
+    const offboarding = buildOffboardingProfile(all);
+    const p = buildActionPlan(fp, computeHqs(fp), undefined, offboarding);
+    const flag = p.items.find((i) => i.key === "exit_experience_letter");
+    expect(flag).toBeDefined();
+    expect(flag!.tone).toBe("risk");
+    expect(flag!.detail).toContain("6 of 6 reports");
+    // Never phrased as intent.
+    expect(flag!.detail.toLowerCase()).not.toContain("withheld");
+    expect(flag!.detail.toLowerCase()).not.toContain("refused");
+  });
+
+  it("does not emit an exit_ flag when the clean-exit rate is fine", () => {
+    const interview = fixture(12, 5, 3);
+    const leavers: EvidenceItem[] = Array.from({ length: 6 }, (_, i) =>
+      item({ id: `l-${i}`, reporterType: "former_employee", exitExperienceLetter: "on_time" })
+    );
+    const all = [...interview, ...leavers];
+    const fp = buildBehaviouralFingerprint(set(all));
+    const offboarding = buildOffboardingProfile(all);
+    const p = buildActionPlan(fp, computeHqs(fp), undefined, offboarding);
+    expect(p.items.some((i) => i.key === "exit_experience_letter")).toBe(false);
+  });
+
+  it("the conduct pointer is null-safe — no conduct item when the signal is below its own floor", () => {
+    const interview = fixture(12, 5, 3);
+    // 7 employee reports, all "serious_concerns" — still below CONDUCT_MIN_EFFECTIVE_N (8),
+    // so conductSignal itself returns null and buildActionPlan must add nothing.
+    const employees: EvidenceItem[] = Array.from({ length: 7 }, (_, i) =>
+      item({ id: `e-${i}`, reporterType: "employee", conductEnvironment: "serious_concerns" })
+    );
+    const all = [...interview, ...employees];
+    const fp = buildBehaviouralFingerprint(set(all));
+    const signal = conductSignal(all);
+    expect(signal).toBeNull(); // the gate held
+    const p = buildActionPlan(fp, computeHqs(fp), undefined, undefined, signal);
+    expect(p.items.some((i) => i.key === "conduct")).toBe(false);
+  });
+
+  it("emits a neutral conduct pointer once the floor clears and serious concerns are corroborated — never names, never asserts cause", () => {
+    const interview = fixture(12, 5, 3);
+    const employees: EvidenceItem[] = Array.from({ length: 8 }, (_, i) =>
+      item({ id: `e-${i}`, reporterType: "employee", conductEnvironment: "serious_concerns" })
+    );
+    const all = [...interview, ...employees];
+    const fp = buildBehaviouralFingerprint(set(all));
+    const signal = conductSignal(all);
+    expect(signal).not.toBeNull();
+    const p = buildActionPlan(fp, computeHqs(fp), undefined, undefined, signal);
+    const flag = p.items.find((i) => i.key === "conduct");
+    expect(flag).toBeDefined();
+    expect(flag!.tone).toBe("risk");
+    const text = flag!.detail.toLowerCase();
+    expect(text).not.toContain("harassment");
+    expect(text).not.toMatch(/because|caused|due to/);
   });
 });

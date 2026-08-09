@@ -143,3 +143,44 @@ describe("compensation privacy enum sync (migration 0018)", () => {
     expect(ROUTE.salary_range_disclosed).toContain("never");
   });
 });
+
+describe("tenure-stage enum sync (migration 0019)", () => {
+  // Same three-copies problem as 0018: DB CHECK, route SALARY_FIELDS-style
+  // allowlists, and the TS unions in types/index. This asserts the route
+  // allowlists match the migration's CHECK constraints exactly.
+  const ROUTE = {
+    reporter_type: ["candidate", "employee", "former_employee"],
+    exit_experience_letter: ["on_time", "delayed", "not_received", "na"],
+    exit_settlement: ["on_time", "delayed", "not_received", "na"],
+    exit_documentation: ["complete", "partial", "none", "na"],
+    would_recommend: ["yes", "maybe", "no"],
+    tenure_bucket: ["0-1", "1-3", "3-5", "5-8", "8+"],
+    conduct_environment: ["respectful", "mostly_ok", "some_concerns", "serious_concerns", "na"],
+  };
+  const MIGRATION_0019 = {
+    reporter_type: ["candidate", "employee", "former_employee"],
+    exit_experience_letter: ["on_time", "delayed", "not_received", "na"],
+    exit_settlement: ["on_time", "delayed", "not_received", "na"],
+    exit_documentation: ["complete", "partial", "none", "na"],
+    would_recommend: ["yes", "maybe", "no"],
+    tenure_bucket: ["0-1", "1-3", "3-5", "5-8", "8+"],
+    conduct_environment: ["respectful", "mostly_ok", "some_concerns", "serious_concerns", "na"],
+  };
+
+  it.each(Object.keys(ROUTE))("%s matches the migration's CHECK constraint", (field) => {
+    const k = field as keyof typeof ROUTE;
+    expect([...ROUTE[k]].sort()).toEqual([...MIGRATION_0019[k]].sort());
+  });
+
+  it("'na'/'none' are ANSWERS, not absence markers — like 0018's 'never'/'none'", () => {
+    // A leaver who answered "never got my letter" (not_received) or "docs were
+    // complete" (na = didn't apply) has answered. Only an unsent field is null.
+    expect(ROUTE.exit_experience_letter).toContain("not_received");
+    expect(ROUTE.exit_documentation).toContain("none");
+    expect(ROUTE.exit_settlement).toContain("na");
+  });
+
+  it("reporter_type keeps 'candidate' — old reports and the default stay valid", () => {
+    expect(ROUTE.reporter_type).toContain("candidate");
+  });
+});

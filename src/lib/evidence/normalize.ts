@@ -17,6 +17,13 @@ import type {
   SalaryProofType,
   SalaryProofStage,
   SalaryRangeDisclosed,
+  ReporterType,
+  ExitExperienceLetter,
+  ExitSettlement,
+  ExitDocumentation,
+  WouldRecommend,
+  TenureBucket,
+  ConductEnvironment,
 } from "@/types/index";
 import type { EvidenceItem } from "./types";
 import type { RawFirstPartyRow, RawExternalRow } from "./load";
@@ -37,6 +44,15 @@ const SALARY_HISTORY_STAGES: readonly string[] = ["never", "application", "scree
 const SALARY_PROOF_TYPES: readonly string[] = ["none", "payslip", "bank_statement", "tax_document"];
 const SALARY_PROOF_STAGES: readonly string[] = ["none", "screening", "interview", "before_offer", "after_offer"];
 const SALARY_RANGE_DISCLOSURES: readonly string[] = ["in_posting", "before_first", "before_final", "at_offer", "never"];
+// Tenure stages (migration 0019). "na"/"none" are answers, not absence; a null
+// arrives from an unanswered field and asEnum keeps it null (ineligible).
+const REPORTER_TYPES: readonly string[] = ["candidate", "employee", "former_employee"];
+const EXIT_EXPERIENCE_LETTERS: readonly string[] = ["on_time", "delayed", "not_received", "na"];
+const EXIT_SETTLEMENTS: readonly string[] = ["on_time", "delayed", "not_received", "na"];
+const EXIT_DOCUMENTATIONS: readonly string[] = ["complete", "partial", "none", "na"];
+const WOULD_RECOMMENDS: readonly string[] = ["yes", "maybe", "no"];
+const TENURE_BUCKETS: readonly string[] = ["0-1", "1-3", "3-5", "5-8", "8+"];
+const CONDUCT_ENVIRONMENTS: readonly string[] = ["respectful", "mostly_ok", "some_concerns", "serious_concerns", "na"];
 
 /**
  * Narrow a raw string to its enum type, or null. The DB's own CHECK
@@ -72,6 +88,9 @@ export function normalizeFirstParty(rows: RawFirstPartyRow[]): EvidenceItem[] {
       organizationId: r.organization_id,
       weight,
       reportedMonth: asMonth(r.reported_month),
+      // Default to 'candidate' when the column is null/unrecognized — a report
+      // that predates 0019 or arrives without the field is an interview report.
+      reporterType: asEnum<ReporterType>(r.reporter_type, REPORTER_TYPES) ?? "candidate",
       stage: asEnum<HiringStage>(r.stage, STAGES),
       outcome: asEnum<HiringOutcome>(r.outcome, OUTCOMES),
       experienceBucket: asEnum<ExperienceBucket>(r.experience_bucket, EXPERIENCE_BUCKETS),
@@ -86,6 +105,12 @@ export function normalizeFirstParty(rows: RawFirstPartyRow[]): EvidenceItem[] {
       salaryProofType: asEnum<SalaryProofType>(r.salary_proof_type, SALARY_PROOF_TYPES),
       salaryProofStage: asEnum<SalaryProofStage>(r.salary_proof_stage, SALARY_PROOF_STAGES),
       salaryRangeDisclosed: asEnum<SalaryRangeDisclosed>(r.salary_range_disclosed, SALARY_RANGE_DISCLOSURES),
+      exitExperienceLetter: asEnum<ExitExperienceLetter>(r.exit_experience_letter, EXIT_EXPERIENCE_LETTERS),
+      exitSettlement: asEnum<ExitSettlement>(r.exit_settlement, EXIT_SETTLEMENTS),
+      exitDocumentation: asEnum<ExitDocumentation>(r.exit_documentation, EXIT_DOCUMENTATIONS),
+      wouldRecommend: asEnum<WouldRecommend>(r.would_recommend, WOULD_RECOMMENDS),
+      tenureBucket: asEnum<TenureBucket>(r.tenure_bucket, TENURE_BUCKETS),
+      conductEnvironment: asEnum<ConductEnvironment>(r.conduct_environment, CONDUCT_ENVIRONMENTS),
       extractionConfidence: null, // first-party has no extraction step
     }));
 }
@@ -116,6 +141,11 @@ export function normalizeExternal(rows: RawExternalRow[], globalMultiplier: numb
         organizationId: r.organization_id,
         weight,
         reportedMonth: asMonth(r.reported_month),
+        // External evidence is always interview-context — a third-party forum
+        // post about a company is a candidate's account, never an employee's
+        // structured culture/exit report. So it is 'candidate', and every
+        // tenure-only field below is null (W1 asymmetry).
+        reporterType: "candidate" as ReporterType,
         stage: asEnum<HiringStage>(r.stage, STAGES),
         outcome: asEnum<HiringOutcome>(r.outcome, OUTCOMES),
         experienceBucket: asEnum<ExperienceBucket>(r.experience_bucket, EXPERIENCE_BUCKETS),
@@ -132,6 +162,12 @@ export function normalizeExternal(rows: RawExternalRow[], globalMultiplier: numb
         salaryProofType: null,
         salaryProofStage: null,
         salaryRangeDisclosed: null,
+        exitExperienceLetter: null,
+        exitSettlement: null,
+        exitDocumentation: null,
+        wouldRecommend: null,
+        tenureBucket: null,
+        conductEnvironment: null,
         extractionConfidence,
       };
     });

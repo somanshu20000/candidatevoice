@@ -276,7 +276,13 @@ function transparency(items: EvidenceItem[]): BehaviouralDimensionScore {
  * the one dimension where a false positive is a genuine reputational injury.
  */
 function paymentRisk(items: EvidenceItem[]): BehaviouralDimensionScore {
-  const eligible = (i: EvidenceItem) => i.paymentFlag !== null;
+  // payment_flag is NOT NULL at the DB (migration 0020's note): a tenure report
+  // that never answers it still stores `false`. Without this guard that would
+  // silently count every employee/former_employee row as "no payment
+  // requested" and dilute a candidate-only signal — so eligibility is also
+  // restricted to reporter_type === 'candidate', the only relationship this
+  // question actually describes.
+  const eligible = (i: EvidenceItem) => i.reporterType === "candidate" && i.paymentFlag !== null;
   return evaluate(items, {
     key: "payment_risk",
     eligible,

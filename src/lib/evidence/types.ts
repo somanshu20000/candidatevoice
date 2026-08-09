@@ -30,6 +30,13 @@ import type {
   SalaryProofType,
   SalaryProofStage,
   SalaryRangeDisclosed,
+  ReporterType,
+  ExitExperienceLetter,
+  ExitSettlement,
+  ExitDocumentation,
+  WouldRecommend,
+  TenureBucket,
+  ConductEnvironment,
 } from "@/types/index";
 
 export type EvidenceFamily = "first_party" | "external";
@@ -52,6 +59,14 @@ export interface EvidenceItem {
   /** YYYY-MM. The one granularity BOTH families share (ADR-0002 W2) — never a
    *  raw timestamp; public_submissions already coarsens first-party to this. */
   reportedMonth: string | null;
+
+  /**
+   * Reporter relationship (migration 0019). Present in both families, but
+   * external is always 'candidate' (a forum post is interview-context). This is
+   * the field the tenure dimensions filter on so an employee's culture answer
+   * never lands in an interview metric and vice versa.
+   */
+  reporterType: ReporterType;
 
   // Present in BOTH families.
   stage: HiringStage | null;
@@ -83,6 +98,16 @@ export interface EvidenceItem {
   salaryProofType: SalaryProofType | null;
   salaryProofStage: SalaryProofStage | null;
   salaryRangeDisclosed: SalaryRangeDisclosed | null;
+  /** Tenure-stage practices (migration 0019). Same first-party asymmetry: an
+   *  external forum post has no equivalent columns, so these are always null on
+   *  external. null = did not answer (excluded), never "no"; "na"/"none" are
+   *  answers. The offboarding/culture/conduct engines read these. */
+  exitExperienceLetter: ExitExperienceLetter | null;
+  exitSettlement: ExitSettlement | null;
+  exitDocumentation: ExitDocumentation | null;
+  wouldRecommend: WouldRecommend | null;
+  tenureBucket: TenureBucket | null;
+  conductEnvironment: ConductEnvironment | null;
 
   /** External only; null for first-party (which has no extraction step). */
   extractionConfidence: number | null;

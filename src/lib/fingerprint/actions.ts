@@ -19,6 +19,8 @@
 import type { BehaviouralFingerprint, BehaviouralDimensionKey } from "./behavioural";
 import type { HqsResult } from "@/utils/hqs";
 import type { CompensationProfile, CompensationDimensionKey } from "./compensation";
+import type { OffboardingProfile, OffboardingDimensionKey } from "./offboarding";
+import { conductPointer, type ConductSignal } from "./conduct";
 
 /**
  * Compensation-privacy red flags. Each fires only when a real, non-suppressed
@@ -58,6 +60,38 @@ const COMPENSATION_FLAGS: {
     below: 0.4,
     label: "Rarely shares the salary range up front",
     detail: (p, n, d) => `${p} did not get a range before interviewing · ${n} of ${d} reports`,
+  },
+];
+
+/**
+ * Offboarding red flags (migration 0019). Same shape as COMPENSATION_FLAGS:
+ * fires only when the clean-exit rate is at or below a named threshold. Phrased
+ * as observations ("did not receive it on time"), never as intent — a leaver
+ * cannot know whether a delay was deliberate, only that it happened.
+ */
+const OFFBOARDING_FLAGS: {
+  key: OffboardingDimensionKey;
+  below: number;
+  label: string;
+  detail: (badPct: string, num: number, den: number) => string;
+}[] = [
+  {
+    key: "experience_letter",
+    below: 0.7,
+    label: "Experience letter often delayed or missing",
+    detail: (p, n, d) => `${p} of leavers did not receive it on time · ${n} of ${d} reports`,
+  },
+  {
+    key: "settlement_timeliness",
+    below: 0.7,
+    label: "Full-and-final settlement often delayed or missing",
+    detail: (p, n, d) => `${p} of leavers were not paid on time · ${n} of ${d} reports`,
+  },
+  {
+    key: "documentation_completeness",
+    below: 0.7,
+    label: "Exit documentation often incomplete",
+    detail: (p, n, d) => `${p} of leavers did not get complete documentation · ${n} of ${d} reports`,
   },
 ];
 
@@ -122,7 +156,13 @@ export function buildActionPlan(
   hqs: HqsResult | null,
   /** Optional: when supplied, compensation-privacy red flags are added too
    *  (migration 0018). Optional so every existing caller keeps working. */
-  compensation?: CompensationProfile
+  compensation?: CompensationProfile,
+  /** Optional: offboarding (exit-conduct) red flags, migration 0019. */
+  offboarding?: OffboardingProfile,
+  /** Optional: the workplace-conduct prevalence signal (conduct.ts). Already
+   *  null unless it cleared CONDUCT_MIN_EFFECTIVE_N, so no re-gating needed
+   *  here — conductPointer() only adds its OWN serious-share threshold on top. */
+  conduct?: ConductSignal | null
 ): ActionPlan {
   const byKey = new Map(fingerprint.dimensions.map((d) => [d.key, d]));
   const rateOf = (key: BehaviouralDimensionKey): { rate: number; num: number; den: number } | null => {
@@ -197,6 +237,32 @@ export function buildActionPlan(
         detail: flag.detail(pct(badRate), badCount, d.metric.rawDenominator),
       });
     }
+  }
+
+  // Offboarding (exit-conduct) red flags (0019), only when supplied.
+  if (offboarding) {
+    const offByKey = new Map(offboarding.dimensions.map((d) => [d.key, d]));
+    for (const flag of OFFBOARDING_FLAGS) {
+      const d = offByKey.get(flag.key);
+      if (!d || d.suppressed || d.metric.value === null) continue;
+      if (d.metric.value > flag.below) continue;
+      const badRate = 1 - d.metric.value;
+      const badCount = d.metric.rawDenominator - d.metric.rawNumerator;
+      items.push({
+        key: `exit_${flag.key}`,
+        tone: "risk",
+        label: flag.label,
+        detail: flag.detail(pct(badRate), badCount, d.metric.rawDenominator),
+      });
+    }
+  }
+
+  // Workplace-conduct pointer (0019) — a single neutral item, never below
+  // conduct.ts's own anonymity floor (conductPointer only adds a further,
+  // higher-signal threshold on top of an already-cleared signal).
+  const conductFlag = conductPointer(conduct ?? null);
+  if (conductFlag) {
+    items.push({ key: "conduct", tone: "risk", label: "Workplace conduct concerns reported", detail: conductFlag.detail });
   }
 
   items.sort((a, b) => TONE_RANK[a.tone] - TONE_RANK[b.tone]);

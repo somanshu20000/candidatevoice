@@ -19,6 +19,12 @@ import type { BehaviouralDimensionScore } from "@/lib/fingerprint/behavioural";
 import { buildForecast, hasAnyForecast } from "@/lib/fingerprint/forecast";
 import { buildCompensationProfile, computePrivacyScore } from "@/lib/fingerprint/compensation";
 import type { CompensationProfile, PrivacyScoreResult } from "@/lib/fingerprint/compensation";
+import { buildOffboardingProfile, computeExitIntegrityScore } from "@/lib/fingerprint/offboarding";
+import type { OffboardingProfile, ExitIntegrityResult } from "@/lib/fingerprint/offboarding";
+import { cultureSignal } from "@/lib/fingerprint/culture";
+import type { CultureSignal } from "@/lib/fingerprint/culture";
+import { conductSignal } from "@/lib/fingerprint/conduct";
+import type { ConductSignal } from "@/lib/fingerprint/conduct";
 import { buildActionPlan } from "@/lib/fingerprint/actions";
 import type { ActionPlan, ActionTone } from "@/lib/fingerprint/actions";
 import type { ForecastLine, ForecastTone } from "@/lib/fingerprint/forecast";
@@ -31,6 +37,7 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import CompanyOverview, { CompanyActions } from "@/components/CompanyOverview";
 import ProfileEnrichment from "@/components/ProfileEnrichment";
+import Bar from "@/components/charts/Bar";
 import { loadCompanyProfile } from "@/lib/company-intelligence/read";
 import { loadSimilarCompanies } from "@/lib/company-intelligence/similar";
 import type { SimilarCompany } from "@/lib/company-intelligence/similar";
@@ -78,22 +85,26 @@ function tierBadge(tier: HqsTier) {
 
 function DimensionRow({ dim }: { dim: BehaviouralDimensionScore }) {
   const inHqs = HQS_WEIGHTS[dim.key] > 0;
+  const tone = dim.score === null ? "neutral" : dim.score >= 70 ? "good" : dim.score >= 40 ? "warn" : "bad";
   return (
-    <div className="flex items-center justify-between py-2.5 border-b border-rule last:border-0">
-      <span className="text-sm text-ink-soft">
-        {dim.label}
-        {!inHqs && <span className="ml-2 text-[10px] font-mono uppercase tracking-wider text-ink-faint">not in HQS</span>}
-      </span>
-      <span className="font-mono text-sm font-medium text-ink tnum">
-        {dim.score === null
-          ? <span className="text-ink-faint">— {dim.suppressionReason ?? "no data"}</span>
-          : <>
-              {Math.round(dim.score)}
-              <span className="ml-2 text-[10px] text-ink-faint">
-                ({dim.metric.rawDenominator} raw)
-              </span>
-            </>}
-      </span>
+    <div className="py-2.5 border-b border-rule last:border-0">
+      <div className="flex items-center justify-between">
+        <span className="text-sm text-ink-soft">
+          {dim.label}
+          {!inHqs && <span className="ml-2 text-[10px] font-mono uppercase tracking-wider text-ink-faint">not in HQS</span>}
+        </span>
+        <span className="font-mono text-sm font-medium text-ink tnum">
+          {dim.score === null
+            ? <span className="text-ink-faint">— {dim.suppressionReason ?? "no data"}</span>
+            : <>
+                {Math.round(dim.score)}
+                <span className="ml-2 text-[10px] text-ink-faint">
+                  ({dim.metric.rawDenominator} raw)
+                </span>
+              </>}
+        </span>
+      </div>
+      <Bar value={dim.score} tone={tone} className="mt-1.5" />
     </div>
   );
 }
@@ -313,16 +324,19 @@ function CompensationPanel({ profile, score }: { profile: CompensationProfile; s
       <p className="text-xs text-ink-muted mb-5">
         What candidates reported about salary questions and document requests. Higher is more privacy-respecting.
       </p>
-      <div className="space-y-2.5">
+      <div className="space-y-3">
         {shown.map((d) => (
-          <div key={d.key} className="flex items-baseline justify-between gap-3 py-2 border-b border-rule last:border-0">
-            <span className="text-sm text-ink-soft">{d.label}</span>
-            <span className="text-right shrink-0">
-              <span className="font-mono text-sm text-ink tnum">{Math.round(d.score!)}</span>
-              <span className="block text-[10px] font-mono text-ink-faint tnum">
-                {d.metric.rawNumerator} of {d.metric.rawDenominator} reports
+          <div key={d.key} className="py-1 border-b border-rule last:border-0">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-sm text-ink-soft">{d.label}</span>
+              <span className="text-right shrink-0">
+                <span className="font-mono text-sm text-ink tnum">{Math.round(d.score!)}</span>
+                <span className="block text-[10px] font-mono text-ink-faint tnum">
+                  {d.metric.rawNumerator} of {d.metric.rawDenominator} reports
+                </span>
               </span>
-            </span>
+            </div>
+            <Bar value={d.score} tone={d.score! >= 70 ? "good" : d.score! >= 40 ? "warn" : "bad"} className="mt-1.5 mb-2" />
           </div>
         ))}
       </div>
@@ -330,6 +344,116 @@ function CompensationPanel({ profile, score }: { profile: CompensationProfile; s
         Salary-history rules vary by jurisdiction — restricted in some, lawful in others.
         CandidateVoice reports what companies did, and does not give legal advice.
         Reports where a candidate skipped a question are excluded, never counted as a &ldquo;no&rdquo;.
+      </p>
+    </section>
+  );
+}
+
+/**
+ * Exit Integrity — what happens when someone leaves. Self-suppressing like
+ * CompensationPanel: nothing renders until a dimension clears its floor, from
+ * leaver reports only (offboarding.ts's own describeBase).
+ */
+function OffboardingPanel({ profile, score }: { profile: OffboardingProfile; score: ExitIntegrityResult | null }) {
+  const shown = profile.dimensions.filter((d) => !d.suppressed && d.score !== null);
+  if (shown.length === 0) return null;
+  const tone = score === null ? "text-ink" : score.tier === "clean" ? "text-good" : score.tier === "mixed" ? "text-warn" : "text-bad";
+  return (
+    <section className="border border-rule bg-paper-sheet rounded-sm p-6 sm:p-8 mb-8 shadow-sheet">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
+        <h2 className="font-serif text-lg sm:text-xl text-ink">Exit integrity</h2>
+        {score && (
+          <span className={`font-serif text-2xl tnum ${tone}`}>
+            {score.score}<span className="text-xs text-ink-faint font-sans">/100</span>
+          </span>
+        )}
+      </div>
+      <p className="text-xs text-ink-muted mb-5">
+        What people who left reported about their experience letter, final settlement, and documentation.
+      </p>
+      <div className="space-y-3">
+        {shown.map((d) => (
+          <div key={d.key} className="py-1 border-b border-rule last:border-0">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-sm text-ink-soft">{d.label}</span>
+              <span className="text-right shrink-0">
+                <span className="font-mono text-sm text-ink tnum">{Math.round(d.score!)}</span>
+                <span className="block text-[10px] font-mono text-ink-faint tnum">
+                  {d.metric.rawNumerator} of {d.metric.rawDenominator} reports
+                </span>
+              </span>
+            </div>
+            <Bar value={d.score} tone={d.score! >= 70 ? "good" : d.score! >= 40 ? "warn" : "bad"} className="mt-1.5 mb-2" />
+          </div>
+        ))}
+      </div>
+      <p className="text-[10px] text-ink-faint mt-4 leading-relaxed">
+        From former employees only. A delay or gap is reported as what happened, not as an
+        accusation of intent — CandidateVoice does not know why a document or payment was late.
+      </p>
+    </section>
+  );
+}
+
+/**
+ * Culture — the "would you recommend" headline, from people who worked there.
+ * Self-suppressing below culture.ts's own (higher) anonymity floor.
+ */
+function CulturePanel({ signal }: { signal: CultureSignal | null }) {
+  if (!signal) return null;
+  const tone = signal.recommendScore >= 70 ? "text-good" : signal.recommendScore >= 40 ? "text-warn" : "text-bad";
+  return (
+    <section className="border border-rule bg-paper-sheet rounded-sm p-6 sm:p-8 mb-8 shadow-sheet">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
+        <h2 className="font-serif text-lg sm:text-xl text-ink">Would employees recommend it?</h2>
+        <span className={`font-serif text-2xl tnum ${tone}`}>
+          {signal.recommendScore}<span className="text-xs text-ink-faint font-sans">/100</span>
+        </span>
+      </div>
+      <p className="text-xs text-ink-muted mb-4">
+        From people who currently or previously worked there · {signal.total} reports.
+      </p>
+      <div className="flex gap-4 text-xs font-mono tnum text-ink-soft">
+        <span>{signal.counts.yes} yes</span>
+        <span>{signal.counts.maybe} maybe</span>
+        <span>{signal.counts.no} no</span>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Workplace Conduct — the sharpest panel in the product. Renders ONLY an
+ * aggregate prevalence, from conduct.ts, which is ALREADY the anonymity gate
+ * (CONDUCT_MIN_EFFECTIVE_N=8) — this component adds no further logic, only the
+ * mandatory framing. Never names anyone; never asserts cause; never appears as
+ * a company "grade". See conduct.ts's header for the full rationale and the
+ * documented precondition for raising this surface's prominence.
+ */
+function ConductPanel({ signal }: { signal: ConductSignal | null }) {
+  if (!signal) return null;
+  return (
+    <section className="border border-rule bg-paper-sheet rounded-sm p-6 sm:p-8 mb-8 shadow-sheet">
+      <h2 className="font-serif text-lg sm:text-xl text-ink mb-1">Workplace conduct</h2>
+      <p className="text-xs text-ink-muted mb-4">
+        How employees and former employees described the day-to-day environment · {signal.total} reports.
+      </p>
+      <div className="space-y-2 text-sm text-ink-soft">
+        <div className="flex items-baseline justify-between py-1.5 border-b border-rule">
+          <span>Respectful / mostly okay</span>
+          <span className="font-mono tnum text-ink">{Math.round(signal.respectfulShare * 100)}%</span>
+        </div>
+        <div className="flex items-baseline justify-between py-1.5 border-b border-rule last:border-0">
+          <span>Some or serious concerns</span>
+          <span className="font-mono tnum text-ink">{Math.round(signal.concernShare * 100)}%</span>
+        </div>
+      </div>
+      <p className="text-[10px] text-ink-faint mt-4 leading-relaxed">
+        This is an aggregated, anonymous self-report from {signal.total} people — not an
+        adjudication of any claim, and not a substitute for a formal grievance process.
+        CandidateVoice never names an individual and never asserts what caused a reported
+        environment. If you are experiencing workplace harassment, please use your employer&apos;s
+        formal grievance channel or applicable local authority.
       </p>
     </section>
   );
@@ -569,8 +693,13 @@ export default async function CompanyPage({ params, searchParams }: Props) {
   // Compensation transparency & privacy (0018) — same engine, own reduction.
   const compensation = buildCompensationProfile(items);
   const privacyScore = computePrivacyScore(compensation);
+  // Tenure stages (0019) — offboarding/culture/conduct, same engine again.
+  const offboarding = buildOffboardingProfile(items);
+  const exitIntegrity = computeExitIntegrityScore(offboarding);
+  const culture = cultureSignal(items);
+  const conduct = conductSignal(items);
   // The decision layer over the same fingerprint + HQS: verdict + grounded flags.
-  const actionPlan = buildActionPlan(fingerprint, hqs, compensation);
+  const actionPlan = buildActionPlan(fingerprint, hqs, compensation, offboarding, conduct);
 
   // "Fit for you" — only when the visitor has saved priorities. Pure over the
   // fingerprint already built above, so a visitor with a preference vector pays
@@ -629,6 +758,12 @@ export default async function CompanyPage({ params, searchParams }: Props) {
         {/* Pay transparency & privacy — self-suppressing: renders nothing until
             at least one dimension clears its floor. */}
         <CompensationPanel profile={compensation} score={privacyScore} />
+
+        {/* Tenure-stage panels (0019) — from employees and former employees,
+            each self-suppressing below its own floor. Ordered safest-first. */}
+        <OffboardingPanel profile={offboarding} score={exitIntegrity} />
+        <CulturePanel signal={culture} />
+        <ConductPanel signal={conduct} />
 
         {/* Personalised answer, when the visitor has set priorities. */}
         {fitForYou && fitExplanation && (

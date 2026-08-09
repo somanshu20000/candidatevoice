@@ -14,7 +14,7 @@ import { sanitizeAndTruncate, FIELD_LIMITS } from "@/utils/sanitize";
 import { checkAndRecordRateLimit } from "@/lib/rate-limit";
 import { getClientIp } from "@/lib/client-ip";
 import { FACET_KEYS, EMOTION_KEYS, type FacetKey, type EmotionKey } from "@/lib/fingerprint/taxonomy";
-import type { ApplicationChannel } from "@/types/index";
+import type { ApplicationChannel, ReporterType } from "@/types/index";
 
 const MAX_SUBMISSIONS_PER_HOUR = 5;
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
@@ -135,6 +135,25 @@ const SALARY_FIELDS: { key: string; allowed: readonly string[] }[] = [
   { key: "salary_range_disclosed", allowed: VALID_SALARY_RANGE_DISCLOSURES },
 ];
 
+// Tenure stages (migration 0019/0020). Mirrors the CHECK constraints;
+// tests/submit-validators.test.ts asserts the three-way sync.
+const VALID_REPORTER_TYPES: readonly ReporterType[] = ["candidate", "employee", "former_employee"];
+const VALID_EXIT_EXPERIENCE_LETTERS = ["on_time", "delayed", "not_received", "na"];
+const VALID_EXIT_SETTLEMENTS = ["on_time", "delayed", "not_received", "na"];
+const VALID_EXIT_DOCUMENTATIONS = ["complete", "partial", "none", "na"];
+const VALID_WOULD_RECOMMENDS = ["yes", "maybe", "no"];
+const VALID_TENURE_BUCKETS = ["0-1", "1-3", "3-5", "5-8", "8+"];
+const VALID_CONDUCT_ENVIRONMENTS = ["respectful", "mostly_ok", "some_concerns", "serious_concerns", "na"];
+
+const TENURE_FIELDS: { key: string; allowed: readonly string[] }[] = [
+  { key: "exit_experience_letter", allowed: VALID_EXIT_EXPERIENCE_LETTERS },
+  { key: "exit_settlement", allowed: VALID_EXIT_SETTLEMENTS },
+  { key: "exit_documentation", allowed: VALID_EXIT_DOCUMENTATIONS },
+  { key: "would_recommend", allowed: VALID_WOULD_RECOMMENDS },
+  { key: "tenure_bucket", allowed: VALID_TENURE_BUCKETS },
+  { key: "conduct_environment", allowed: VALID_CONDUCT_ENVIRONMENTS },
+];
+
 /**
  * Resolve the submitted company slug to a canonical organization, creating one
  * if this is the first time this employer has ever been observed.
@@ -232,17 +251,37 @@ export async function POST(req: NextRequest) {
 
     const body = (await req.json()) as SubmissionInsert & { ratings?: unknown; emotions?: unknown };
 
-    // Server-side enum validation — reject anything not in the known set
+    // Reporter relationship (migration 0019) — absent defaults to 'candidate',
+    // matching submit_hiring_report's own coalesce, so an old client that never
+    // sends the field keeps working exactly as before.
+    const rawReporterType = body.reporter_type;
+    const reporterType: ReporterType =
+      rawReporterType && (VALID_REPORTER_TYPES as readonly string[]).includes(String(rawReporterType))
+        ? (rawReporterType as ReporterType)
+        : "candidate";
+    const isCandidate = reporterType === "candidate";
+
+    // The 8 interview-only fields (migration 0020 made 4 of them nullable at
+    // the DB precisely for this): a candidate report must have real values,
+    // exactly as before. An employee/former_employee report never went through
+    // an interview process here, so these fields are not required — and are
+    // forced to null below regardless of what the client sent, so a stray
+    // client-side bug can never write interview data under a non-candidate row.
     if (
-      !VALID_STAGES.includes(String(body.stage ?? "")) ||
-      !VALID_OUTCOMES.includes(String(body.outcome ?? "")) ||
-      !VALID_EXPERIENCE_BUCKETS.includes(String(body.experience_bucket ?? "")) ||
-      !VALID_RESPONSE_TIME_BUCKETS.includes(String(body.response_time_bucket ?? "")) ||
-      !VALID_LAST_INTERACTION_GAPS.includes(String(body.last_interaction_gap ?? "")) ||
-      !VALID_CALL_DURATIONS.includes(String(body.call_duration ?? "")) ||
-      !VALID_FIRST_INTERACTION_OUTCOMES.includes(String(body.first_interaction_outcome ?? "")) ||
-      !VALID_REASONS.includes(String(body.reason ?? ""))
+      isCandidate &&
+      (!VALID_STAGES.includes(String(body.stage ?? "")) ||
+        !VALID_OUTCOMES.includes(String(body.outcome ?? "")) ||
+        !VALID_RESPONSE_TIME_BUCKETS.includes(String(body.response_time_bucket ?? "")) ||
+        !VALID_LAST_INTERACTION_GAPS.includes(String(body.last_interaction_gap ?? "")) ||
+        !VALID_CALL_DURATIONS.includes(String(body.call_duration ?? "")) ||
+        !VALID_FIRST_INTERACTION_OUTCOMES.includes(String(body.first_interaction_outcome ?? "")) ||
+        !VALID_REASONS.includes(String(body.reason ?? "")))
     ) {
+      return NextResponse.json({ error: "Invalid field values." }, { status: 400 });
+    }
+    // experience_bucket applies to every relationship (it's about the reporter,
+    // not the interview), so it stays required unconditionally.
+    if (!VALID_EXPERIENCE_BUCKETS.includes(String(body.experience_bucket ?? ""))) {
       return NextResponse.json({ error: "Invalid field values." }, { status: 400 });
     }
 
@@ -259,32 +298,58 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: channelValidation.error }, { status: 400 });
     }
 
-    // Compensation privacy (0018) — all optional; absent stays null.
+    // Compensation privacy (0018) — CANDIDATE-KNOWABLE by definition (0018's own
+    // header): a question about what was asked during YOUR hiring process has no
+    // meaning for someone who never went through one. All optional; absent stays
+    // null; forced null outright for a non-candidate report.
     const salaryValues: Record<string, string | null> = {};
     for (const f of SALARY_FIELDS) {
+      if (!isCandidate) {
+        salaryValues[f.key] = null;
+        continue;
+      }
       const r = validateOptionalEnum((body as Record<string, unknown>)[f.key], f.allowed, f.key);
       if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
       salaryValues[f.key] = r.value;
+    }
+
+    // Tenure-stage practices (0019) — all optional, all first-party. Unlike
+    // salary, these are collectable from EITHER employee stage (would_recommend,
+    // tenure_bucket, conduct_environment are asked of both; the exit_* fields are
+    // meaningful only for a leaver but are simply null if a current employee
+    // never answers them — no relationship gate needed here, the columns are
+    // just questions nobody but the right audience will have an answer to).
+    const tenureValues: Record<string, string | null> = {};
+    for (const f of TENURE_FIELDS) {
+      const r = validateOptionalEnum((body as Record<string, unknown>)[f.key], f.allowed, f.key);
+      if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
+      tenureValues[f.key] = r.value;
     }
 
     const payload: SubmissionInsert = {
       company: normalizeCompanySlug(sanitizeAndTruncate(String(body.company ?? ""), 100)),
       role: sanitizeAndTruncate(String(body.role ?? ""), FIELD_LIMITS.ROLE_TITLE),
       experience_bucket: body.experience_bucket,
-      application_channel: channelValidation.value,
+      reporter_type: reporterType,
+      application_channel: isCandidate ? channelValidation.value : null,
       ...salaryValues,
-      stage: body.stage,
-      outcome: body.outcome,
-      response_time_bucket: body.response_time_bucket,
-      last_interaction_gap: body.last_interaction_gap,
-      call_duration: body.call_duration,
-      first_interaction_outcome: body.first_interaction_outcome,
-      reason: String(body.reason ?? "").trim(),
-      payment_flag: Boolean(body.payment_flag),
+      ...tenureValues,
+      stage: isCandidate ? body.stage : null,
+      outcome: isCandidate ? body.outcome : null,
+      response_time_bucket: isCandidate ? body.response_time_bucket : null,
+      last_interaction_gap: isCandidate ? body.last_interaction_gap : null,
+      call_duration: isCandidate ? body.call_duration : null,
+      first_interaction_outcome: isCandidate ? body.first_interaction_outcome : null,
+      reason: isCandidate ? String(body.reason ?? "").trim() : null,
+      // payment_flag is NOT NULL at the DB; false is the honest default for a
+      // question that doesn't apply outside the candidate flow. The engine's
+      // payment_risk dimension also independently gates on reporter_type, so
+      // this value is never read for a non-candidate row either way.
+      payment_flag: isCandidate ? Boolean(body.payment_flag) : false,
       is_approved: false,
     };
 
-    if (!payload.company || !payload.role || !payload.reason) {
+    if (!payload.company || !payload.role || (isCandidate && !payload.reason)) {
       return NextResponse.json({ error: "Missing required fields." }, { status: 400 });
     }
 

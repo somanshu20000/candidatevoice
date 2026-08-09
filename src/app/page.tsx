@@ -58,6 +58,11 @@ export default async function HomePage() {
       reason,
       reported_month
     `)
+    // Candidate-only (migration 0019): this feed reads as "recent rejections",
+    // which stage/reason only mean for someone who interviewed. An employee or
+    // former_employee row has stage=null/reason=null and would otherwise show
+    // up here mislabeled by mapStage's null-falls-through-to-"final" default.
+    .eq("reporter_type", "candidate")
     .order("reported_month", { ascending: false })
     .limit(10);
 

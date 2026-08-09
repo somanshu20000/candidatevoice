@@ -33,6 +33,41 @@ export type SalaryProofType = "none" | "payslip" | "bank_statement" | "tax_docum
 export type SalaryProofStage = "none" | "screening" | "interview" | "before_offer" | "after_offer";
 /** When the company disclosed ITS range — the other side of the asymmetry. */
 export type SalaryRangeDisclosed = "in_posting" | "before_first" | "before_final" | "at_offer" | "never";
+
+/**
+ * Reporter relationship (migration 0019). The one field that says which of the
+ * three question sets a report belongs to. 'candidate' = interviewed here (the
+ * only value before 0019); 'employee' = currently works here; 'former_employee'
+ * = used to work here. External evidence is always interview-context, so it
+ * normalises to 'candidate'.
+ */
+export type ReporterType = "candidate" | "employee" | "former_employee";
+
+/**
+ * Tenure-stage practices (migration 0019). First-party only, all optional, and
+ * "NULL is not NO" like the 0018 salary fields: `null` = did not answer
+ * (excluded from the metric), whereas `"na"` / `"none"` are real answers.
+ * `"not_received"` is a FACT the reporter observed — never phrased as
+ * "withheld"/"refused"; we do not infer a company's intent from a report.
+ */
+/** former_employee: experience/relieving letter received, and its timing. */
+export type ExitExperienceLetter = "on_time" | "delayed" | "not_received" | "na";
+/** former_employee: full-and-final settlement timing. */
+export type ExitSettlement = "on_time" | "delayed" | "not_received" | "na";
+/** former_employee: completeness of exit documentation. */
+export type ExitDocumentation = "complete" | "partial" | "none" | "na";
+/** employee: the single headline culture signal. */
+export type WouldRecommend = "yes" | "maybe" | "no";
+/** employee/former_employee: how long they worked here. Mirrors ExperienceBucket buckets. */
+export type TenureBucket = "0-1" | "1-3" | "3-5" | "5-8" | "8+";
+/**
+ * employee/former_employee: workplace conduct environment. A role-neutral,
+ * structured psychological-safety scale — NEVER free text, NEVER about a named
+ * person. Its aggregate is gated far harder than any other field (conduct.ts:
+ * CONDUCT_MIN_EFFECTIVE_N), because it is the only field touching
+ * harassment/toxicity and a current employee at a small firm is identifiable.
+ */
+export type ConductEnvironment = "respectful" | "mostly_ok" | "some_concerns" | "serious_concerns" | "na";
 /**
  * The furthest stage a submission reached, as shown on a card.
  *
@@ -68,13 +103,16 @@ export interface HiringSubmission {
   company: string;
   role: string;
   experience_bucket: ExperienceBucket;
-  stage: HiringStage;
-  outcome: HiringOutcome;
-  response_time_bucket: ResponseTimeBucket;
-  last_interaction_gap: LastInteractionGap;
-  call_duration: CallDuration;
-  first_interaction_outcome: FirstInteractionOutcome;
-  reason: string;
+  /** Nullable since migration 0020 — an employee/former_employee report never
+   *  went through an interview process, so these four have no honest value. A
+   *  candidate report must still supply them (enforced at the route). */
+  stage: HiringStage | null;
+  outcome: HiringOutcome | null;
+  response_time_bucket: ResponseTimeBucket | null;
+  last_interaction_gap: LastInteractionGap | null;
+  call_duration: CallDuration | null;
+  first_interaction_outcome: FirstInteractionOutcome | null;
+  reason: string | null;
   payment_flag: boolean;
   is_approved: boolean;
   created_at: string;
@@ -84,8 +122,9 @@ export interface HiringSubmission {
    *  via resolve_organization()/create-on-miss; null only if that resolution
    *  itself failed (fail-open — a submission is never dropped over it). */
   organization_id?: string | null;
-  /** Always 'candidate' today — see migration 0000. */
-  reporter_type?: string;
+  /** Which of the three relationships this report is (migration 0019).
+   *  Defaults to 'candidate' when absent. */
+  reporter_type?: ReporterType;
   /** Optional — see ApplicationChannel. Migration 0014. */
   application_channel?: ApplicationChannel | null;
   /** Compensation transparency & privacy (migration 0018). All optional;
@@ -94,6 +133,14 @@ export interface HiringSubmission {
   salary_proof_type?: SalaryProofType | null;
   salary_proof_stage?: SalaryProofStage | null;
   salary_range_disclosed?: SalaryRangeDisclosed | null;
+  /** Tenure-stage practices (migration 0019). All optional; null means
+   *  unanswered, never "no". See each type above. */
+  exit_experience_letter?: ExitExperienceLetter | null;
+  exit_settlement?: ExitSettlement | null;
+  exit_documentation?: ExitDocumentation | null;
+  would_recommend?: WouldRecommend | null;
+  tenure_bucket?: TenureBucket | null;
+  conduct_environment?: ConductEnvironment | null;
 }
 
 export type Database = {

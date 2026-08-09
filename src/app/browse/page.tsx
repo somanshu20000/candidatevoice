@@ -109,13 +109,20 @@ export default function BrowsePage() {
       // reason it exists — coarsens created_at to a YYYY-MM reported_month.
       // Selecting raw created_at here was an anonymity leak: a precise
       // timestamp plus a company and role can identify one candidate.
+      // Candidate-only (migration 0019): this is a rejection/interview browse
+      // feed — stage/reason only mean something for someone who interviewed. An
+      // employee/former_employee row has both null and would otherwise render
+      // via mapStage's null-falls-through-to-"final" default, mislabeling a
+      // culture or exit report as a candidate rejection.
       let countQuery = supabase
         .from("public_submissions")
-        .select("*", { count: "exact", head: true });
+        .select("*", { count: "exact", head: true })
+        .eq("reporter_type", "candidate");
 
       let dataQuery = supabase
         .from("public_submissions")
         .select("id, company, role, stage, reason, reported_month")
+        .eq("reporter_type", "candidate")
         .order("reported_month", { ascending: false })
         .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1);
 

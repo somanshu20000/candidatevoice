@@ -30,6 +30,9 @@ export interface RawFirstPartyRow {
   reason: string | null;
   payment_flag: boolean | null;
   reported_month: string | null;
+  /** Which of the three relationships this report is (migration 0019).
+   *  Defaults to 'candidate' at the DB level. */
+  reporter_type: string | null;
   /** First-party only (migration 0014) — no column on external_reports. */
   application_channel: string | null;
   /** Compensation transparency & privacy, first-party only (migration 0018).
@@ -38,6 +41,14 @@ export interface RawFirstPartyRow {
   salary_proof_type: string | null;
   salary_proof_stage: string | null;
   salary_range_disclosed: string | null;
+  /** Tenure-stage practices, first-party only (migration 0019). Same rule:
+   *  null = unanswered (excluded), NOT "no". */
+  exit_experience_letter: string | null;
+  exit_settlement: string | null;
+  exit_documentation: string | null;
+  would_recommend: string | null;
+  tenure_bucket: string | null;
+  conduct_environment: string | null;
 }
 
 export interface RawExternalRow {
@@ -57,9 +68,10 @@ export interface RawExternalRow {
 }
 
 const FIRST_PARTY_SELECT =
-  "id, organization_id, experience_bucket, stage, outcome, response_time_bucket, " +
+  "id, organization_id, reporter_type, experience_bucket, stage, outcome, response_time_bucket, " +
   "last_interaction_gap, call_duration, first_interaction_outcome, reason, payment_flag, reported_month, " +
-  "application_channel, salary_history_stage, salary_proof_type, salary_proof_stage, salary_range_disclosed";
+  "application_channel, salary_history_stage, salary_proof_type, salary_proof_stage, salary_range_disclosed, " +
+  "exit_experience_letter, exit_settlement, exit_documentation, would_recommend, tenure_bucket, conduct_environment";
 
 const EXTERNAL_SELECT =
   "id, organization_id, source_key, trust_weight, experience_bucket, stage, outcome, " +
