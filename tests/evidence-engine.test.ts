@@ -46,6 +46,13 @@ function evidenceItem(fields: Partial<EvidenceItem> & Pick<EvidenceItem, "id" | 
     salaryProofType: null,
     salaryProofStage: null,
     salaryRangeDisclosed: null,
+    reporterType: "candidate",
+    exitExperienceLetter: null,
+    exitSettlement: null,
+    exitDocumentation: null,
+    wouldRecommend: null,
+    tenureBucket: null,
+    conductEnvironment: null,
     extractionConfidence: null,
     ...fields,
   };
@@ -69,6 +76,13 @@ function rawFirstPartyRow(fields: Partial<RawFirstPartyRow> & Pick<RawFirstParty
     salary_proof_type: null,
     salary_proof_stage: null,
     salary_range_disclosed: null,
+    reporter_type: "candidate",
+    exit_experience_letter: null,
+    exit_settlement: null,
+    exit_documentation: null,
+    would_recommend: null,
+    tenure_bucket: null,
+    conduct_environment: null,
     ...fields,
   };
 }

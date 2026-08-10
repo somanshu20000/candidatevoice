@@ -43,6 +43,13 @@ function evidenceItem(fields: Partial<EvidenceItem> & Pick<EvidenceItem, "id" | 
     salaryProofType: null,
     salaryProofStage: null,
     salaryRangeDisclosed: null,
+    reporterType: "candidate",
+    exitExperienceLetter: null,
+    exitSettlement: null,
+    exitDocumentation: null,
+    wouldRecommend: null,
+    tenureBucket: null,
+    conductEnvironment: null,
     extractionConfidence: null,
     ...fields,
   };
