@@ -144,7 +144,7 @@ describe("compensation privacy enum sync (migration 0018)", () => {
   });
 });
 
-describe("tenure-stage enum sync (migration 0019)", () => {
+describe("tenure-stage enum sync (migration 0020)", () => {
   // Same three-copies problem as 0018: DB CHECK, route SALARY_FIELDS-style
   // allowlists, and the TS unions in types/index. This asserts the route
   // allowlists match the migration's CHECK constraints exactly.

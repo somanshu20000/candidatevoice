@@ -1,5 +1,5 @@
 /**
- * Hiring-intent events — types + payload validation (migration 0022).
+ * Hiring-intent events — types + payload validation (migration 0023).
  *
  * CANDIDATE PERCEPTION IS NOT FACT. `candidate_perceived_intent` is explicitly
  * labelled as one person's read of the process — never rendered as an

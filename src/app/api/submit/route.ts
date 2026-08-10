@@ -137,7 +137,7 @@ const SALARY_FIELDS: { key: string; allowed: readonly string[] }[] = [
   { key: "salary_range_disclosed", allowed: VALID_SALARY_RANGE_DISCLOSURES },
 ];
 
-// Tenure stages (migration 0019/0020). Mirrors the CHECK constraints;
+// Tenure stages (migration 0020/0021). Mirrors the CHECK constraints;
 // tests/submit-validators.test.ts asserts the three-way sync.
 const VALID_REPORTER_TYPES: readonly ReporterType[] = ["candidate", "employee", "former_employee"];
 const VALID_EXIT_EXPERIENCE_LETTERS = ["on_time", "delayed", "not_received", "na"];
@@ -157,7 +157,7 @@ const TENURE_FIELDS: { key: string; allowed: readonly string[] }[] = [
 ];
 
 /**
- * Company identity (migration 0021). This route NEVER resolves an
+ * Company identity (migration 0022). This route NEVER resolves an
  * organization from free-text company input and NEVER silently creates one —
  * that was the old resolveOrCreateOrganization behaviour, removed entirely.
  * The client must have already run the confirmation flow
@@ -215,18 +215,18 @@ export async function POST(req: NextRequest) {
     const body = (await req.json()) as SubmissionInsert & {
       ratings?: unknown;
       emotions?: unknown;
-      /** Confirmed organization id from the search+confirm flow (0021). */
+      /** Confirmed organization id from the search+confirm flow (0022). */
       organization_id?: unknown;
       company_not_listed?: unknown;
       company_request_domain?: unknown;
-      /** Hiring-intent (0022) — the only genuinely new candidate fields;
+      /** Hiring-intent (0023) — the only genuinely new candidate fields;
        *  interview_occurred/candidate_outcome/candidate_follow_up events reuse
        *  stage/outcome/last_interaction_gap already collected above. */
       perceived_seriousness?: unknown;
       intent_reasons?: unknown;
     };
 
-    // Reporter relationship (migration 0019) — absent defaults to 'candidate',
+    // Reporter relationship (migration 0020) — absent defaults to 'candidate',
     // matching submit_hiring_report's own coalesce, so an old client that never
     // sends the field keeps working exactly as before.
     const rawReporterType = body.reporter_type;
@@ -236,7 +236,7 @@ export async function POST(req: NextRequest) {
         : "candidate";
     const isCandidate = reporterType === "candidate";
 
-    // The 8 interview-only fields (migration 0020 made 4 of them nullable at
+    // The 8 interview-only fields (migration 0021 made 4 of them nullable at
     // the DB precisely for this): a candidate report must have real values,
     // exactly as before. An employee/former_employee report never went through
     // an interview process here, so these fields are not required — and are
@@ -288,7 +288,7 @@ export async function POST(req: NextRequest) {
       salaryValues[f.key] = r.value;
     }
 
-    // Tenure-stage practices (0019) — all optional, all first-party. Unlike
+    // Tenure-stage practices (0020) — all optional, all first-party. Unlike
     // salary, these are collectable from EITHER employee stage (would_recommend,
     // tenure_bucket, conduct_environment are asked of both; the exit_* fields are
     // meaningful only for a leaver but are simply null if a current employee
@@ -330,7 +330,7 @@ export async function POST(req: NextRequest) {
 
     const supabase = createAdminClient() as unknown as SupabaseClient;
 
-    // Company identity (migration 0021) — never silently resolved or created.
+    // Company identity (migration 0022) — never silently resolved or created.
     // Exactly one of these two must be true: the client confirmed a specific
     // organization, or explicitly said it isn't listed. Anything else is
     // rejected — this is the server-side half of "never silently choose,"
@@ -373,7 +373,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unable to submit right now." }, { status: 500 });
     }
 
-    // Hiring-intent events (0022) — candidate-only, and only when a REAL
+    // Hiring-intent events (0023) — candidate-only, and only when a REAL
     // organization was confirmed (the "isn't listed" path has no opportunity
     // to attach to). Reuses stage/outcome/last_interaction_gap already
     // validated above rather than asking for them twice; perceived_seriousness

@@ -1,7 +1,7 @@
 -- CandidateVoice migration: let tenure reports omit interview-only fields
 --
 -- WHY THIS EXISTS
--- 0019 opened the door to employee / former_employee reports. But four columns
+-- 0020 opened the door to employee / former_employee reports. But four columns
 -- were NOT NULL from the baseline, when the platform only ever heard from
 -- candidates: stage, outcome, response_time_bucket, last_interaction_gap. Those
 -- describe an INTERVIEW. A current employee or a leaver has no honest value for
@@ -22,7 +22,7 @@
 -- instead. experience_bucket / company / role also stay required: they apply to
 -- every reporter, not just candidates.
 --
--- Run order: after 0019.
+-- Run order: after 0020.
 
 alter table hiring_submissions alter column stage drop not null;
 alter table hiring_submissions alter column outcome drop not null;

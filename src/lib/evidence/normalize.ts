@@ -44,7 +44,7 @@ const SALARY_HISTORY_STAGES: readonly string[] = ["never", "application", "scree
 const SALARY_PROOF_TYPES: readonly string[] = ["none", "payslip", "bank_statement", "tax_document"];
 const SALARY_PROOF_STAGES: readonly string[] = ["none", "screening", "interview", "before_offer", "after_offer"];
 const SALARY_RANGE_DISCLOSURES: readonly string[] = ["in_posting", "before_first", "before_final", "at_offer", "never"];
-// Tenure stages (migration 0019). "na"/"none" are answers, not absence; a null
+// Tenure stages (migration 0020). "na"/"none" are answers, not absence; a null
 // arrives from an unanswered field and asEnum keeps it null (ineligible).
 const REPORTER_TYPES: readonly string[] = ["candidate", "employee", "former_employee"];
 const EXIT_EXPERIENCE_LETTERS: readonly string[] = ["on_time", "delayed", "not_received", "na"];
@@ -89,7 +89,7 @@ export function normalizeFirstParty(rows: RawFirstPartyRow[]): EvidenceItem[] {
       weight,
       reportedMonth: asMonth(r.reported_month),
       // Default to 'candidate' when the column is null/unrecognized — a report
-      // that predates 0019 or arrives without the field is an interview report.
+      // that predates 0020 or arrives without the field is an interview report.
       reporterType: asEnum<ReporterType>(r.reporter_type, REPORTER_TYPES) ?? "candidate",
       stage: asEnum<HiringStage>(r.stage, STAGES),
       outcome: asEnum<HiringOutcome>(r.outcome, OUTCOMES),

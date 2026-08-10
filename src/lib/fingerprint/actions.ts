@@ -64,7 +64,7 @@ const COMPENSATION_FLAGS: {
 ];
 
 /**
- * Offboarding red flags (migration 0019). Same shape as COMPENSATION_FLAGS:
+ * Offboarding red flags (migration 0020). Same shape as COMPENSATION_FLAGS:
  * fires only when the clean-exit rate is at or below a named threshold. Phrased
  * as observations ("did not receive it on time"), never as intent — a leaver
  * cannot know whether a delay was deliberate, only that it happened.
@@ -157,7 +157,7 @@ export function buildActionPlan(
   /** Optional: when supplied, compensation-privacy red flags are added too
    *  (migration 0018). Optional so every existing caller keeps working. */
   compensation?: CompensationProfile,
-  /** Optional: offboarding (exit-conduct) red flags, migration 0019. */
+  /** Optional: offboarding (exit-conduct) red flags, migration 0020. */
   offboarding?: OffboardingProfile,
   /** Optional: the workplace-conduct prevalence signal (conduct.ts). Already
    *  null unless it cleared CONDUCT_MIN_EFFECTIVE_N, so no re-gating needed
@@ -239,7 +239,7 @@ export function buildActionPlan(
     }
   }
 
-  // Offboarding (exit-conduct) red flags (0019), only when supplied.
+  // Offboarding (exit-conduct) red flags (0020), only when supplied.
   if (offboarding) {
     const offByKey = new Map(offboarding.dimensions.map((d) => [d.key, d]));
     for (const flag of OFFBOARDING_FLAGS) {
@@ -257,7 +257,7 @@ export function buildActionPlan(
     }
   }
 
-  // Workplace-conduct pointer (0019) — a single neutral item, never below
+  // Workplace-conduct pointer (0020) — a single neutral item, never below
   // conduct.ts's own anonymity floor (conductPointer only adds a further,
   // higher-signal threshold on top of an already-cleared signal).
   const conductFlag = conductPointer(conduct ?? null);

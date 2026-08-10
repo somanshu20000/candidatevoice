@@ -23,7 +23,7 @@ import type {
 import type { PerceivedSeriousness, IntentReason } from "@/lib/hiring-intent/events";
 import { INTENT_REASON_VALUES } from "@/lib/hiring-intent/events";
 
-/** Human labels for the closed intent-reason enum (migration 0022). */
+/** Human labels for the closed intent-reason enum (migration 0023). */
 const INTENT_REASON_LABELS: Record<IntentReason, string> = {
   recruiter_responsiveness: "Recruiter responsiveness",
   interview_scheduling: "Interview scheduling",
@@ -45,7 +45,7 @@ import {
 
 type ExperienceBucket = HiringSubmission["experience_bucket"];
 // NonNullable: these five became nullable at the DB/type level (migration
-// 0020) so a non-candidate report can omit them. The FORM never stores null
+// 0021) so a non-candidate report can omit them. The FORM never stores null
 // though — an unset field is "" until submit time, where it becomes null only
 // for a non-candidate relationship. See handleSubmit.
 type Stage = NonNullable<HiringSubmission["stage"]>;
@@ -66,7 +66,7 @@ const LIKERT_DIMENSIONS = DIMENSIONS.filter(
 const EMOTION_DIMENSION = DIMENSIONS.find((d) => d.measurement === "emotion") ?? null;
 
 interface FormState {
-  /** Which of the three relationships this report is (migration 0019).
+  /** Which of the three relationships this report is (migration 0020).
    *  Drives which later steps appear — see stepsFor(). Defaults to 'candidate'
    *  so the wizard behaves exactly as before unless the reporter changes it. */
   relationship: ReporterType;
@@ -74,7 +74,7 @@ interface FormState {
    *  organization (if any) they went on to confirm. Never used to resolve
    *  identity; see company_organization_id. */
   company: string;
-  /** Set ONLY by an explicit "This is the company" click (migration 0021).
+  /** Set ONLY by an explicit "This is the company" click (migration 0022).
    *  null means unconfirmed — canAdvance() blocks past step 1 without it
    *  (or company_not_listed). The server re-verifies this id independently;
    *  it is never trusted as-is. */
@@ -105,11 +105,11 @@ interface FormState {
   salary_proof_type: SalaryProofType | "";
   salary_proof_stage: SalaryProofStage | "";
   salary_range_disclosed: SalaryRangeDisclosed | "";
-  /** Hiring-intent perception (migration 0022). Candidate-only, optional, and
+  /** Hiring-intent perception (migration 0023). Candidate-only, optional, and
    *  explicitly a PERCEPTION — never rendered as objective fact. "" → no event. */
   perceived_seriousness: PerceivedSeriousness | "";
   intent_reasons: IntentReason[];
-  /** Tenure-stage practices (migration 0019). All optional; "" → null. */
+  /** Tenure-stage practices (migration 0020). All optional; "" → null. */
   exit_experience_letter: ExitExperienceLetter | "";
   exit_settlement: ExitSettlement | "";
   exit_documentation: ExitDocumentation | "";
@@ -131,7 +131,7 @@ type StepKey = "basics" | "process" | "timeline" | "details" | "exit" | "culture
  * the interview-specific steps (process/timeline/details, including the 0018
  * salary questions, which are candidate-knowable by definition) only make
  * sense for someone who actually interviewed. exit/culture are the tenure-stage
- * counterparts (0019). `experience` (facet ratings + emotions) appears for
+ * counterparts (0020). `experience` (facet ratings + emotions) appears for
  * everyone, but a candidate additionally sees the interview-specific facets —
  * see the render logic for LIKERT_DIMENSIONS below.
  */
@@ -205,7 +205,7 @@ interface RankedCandidate {
 }
 
 /**
- * Company discovery + explicit confirmation (migration 0021). NEVER writes
+ * Company discovery + explicit confirmation (migration 0022). NEVER writes
  * organization_id itself — it only searches and lets the user confirm, and
  * the parent's canAdvance() blocks progress until either a confirmation or
  * an explicit "isn't listed" choice exists. /api/submit re-verifies whatever
@@ -534,7 +534,7 @@ export default function SubmitPage() {
       salary_proof_type: isCandidate ? form.salary_proof_type || null : null,
       salary_proof_stage: isCandidate ? form.salary_proof_stage || null : null,
       salary_range_disclosed: isCandidate ? form.salary_range_disclosed || null : null,
-      // Tenure-stage practices (0019) — collectable from whichever relationship
+      // Tenure-stage practices (0020) — collectable from whichever relationship
       // actually answered; "" (unanswered) stays null either way.
       exit_experience_letter: form.exit_experience_letter || null,
       exit_settlement: form.exit_settlement || null,
@@ -560,7 +560,7 @@ export default function SubmitPage() {
         ...payload,
         ratings,
         emotions,
-        // The confirmed organization_id (migration 0021) — the route
+        // The confirmed organization_id (migration 0022) — the route
         // re-verifies this independently; it is never trusted as-is. When
         // the user chose "isn't listed" instead, organization_id is omitted
         // and the route creates a company_requests row from company_not_listed
@@ -568,7 +568,7 @@ export default function SubmitPage() {
         organization_id: form.company_organization_id,
         company_not_listed: form.company_not_listed,
         company_request_domain: form.company_not_listed ? form.company_request_domain || null : null,
-        // Hiring-intent (0022) — candidate-only perception; the route ignores
+        // Hiring-intent (0023) — candidate-only perception; the route ignores
         // these for non-candidate reporters and when no org was confirmed.
         perceived_seriousness: isCandidate ? form.perceived_seriousness || null : null,
         intent_reasons: isCandidate ? form.intent_reasons : [],
@@ -935,7 +935,7 @@ export default function SubmitPage() {
                 </div>
               </div>
 
-              {/* Hiring-intent perception (migration 0022). Explicitly YOUR
+              {/* Hiring-intent perception (migration 0023). Explicitly YOUR
                   impression, not a fact about the company. Structured reasons
                   only — no free text — so this can never become an accusation. */}
               <div className="border-t border-rule pt-5 space-y-4">
@@ -989,7 +989,7 @@ export default function SubmitPage() {
             </div>
           )}
 
-          {/* Exit step (former_employee only) — offboarding.ts (migration 0019).
+          {/* Exit step (former_employee only) — offboarding.ts (migration 0020).
               All optional; "Prefer not to say" leaves the column null, which
               every metric treats as ineligible rather than as a "no". */}
           {stepKey === "exit" && (
@@ -1042,7 +1042,7 @@ export default function SubmitPage() {
           )}
 
           {/* Culture step (employee + former_employee) — culture.ts +
-              conduct.ts (migration 0019). All optional. The conduct question is
+              conduct.ts (migration 0020). All optional. The conduct question is
               deliberately a role-neutral environment scale, never about a named
               person — see conduct.ts's header for why. */}
           {stepKey === "culture" && (

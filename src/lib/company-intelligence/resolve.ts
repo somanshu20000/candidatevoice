@@ -1,6 +1,6 @@
 /**
  * Company resolution — ranked candidate search + explicit-confirmation
- * support (migration 0021). This module NEVER decides which organization a
+ * support (migration 0022). This module NEVER decides which organization a
  * submission belongs to; it only ranks and returns candidates. The caller
  * (the submit flow) always requires a human to click "This is the company"
  * before an organization_id is usable — see docs and /api/submit.

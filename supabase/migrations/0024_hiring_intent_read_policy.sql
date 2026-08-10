@@ -2,7 +2,7 @@
 -- public SELECT policy
 --
 -- WHY THIS EXISTS
--- 0022 enabled RLS on hiring_opportunities and hiring_events but never added
+-- 0023 enabled RLS on hiring_opportunities and hiring_events but never added
 -- a SELECT policy for anon/authenticated (unlike hiring_submissions, which
 -- has an explicit is_approved-scoped read policy). RLS enabled + zero
 -- policies means DENY-ALL for every role except the table owner/service-role.
@@ -19,9 +19,9 @@
 -- moderation before becoming public. Write access is UNCHANGED: still no
 -- anon/authenticated INSERT/UPDATE/DELETE policy on either table — only the
 -- service-role client (which bypasses RLS entirely) can write, exactly as
--- 0022 intended.
+-- 0023 intended.
 --
--- Run order: after 0022.
+-- Run order: after 0023.
 
 create policy hiring_opportunities_public_read on hiring_opportunities
   for select to anon, authenticated using (true);

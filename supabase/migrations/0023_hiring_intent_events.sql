@@ -19,7 +19,7 @@
 -- src/lib/evidence/*, src/lib/fingerprint/*, or src/utils/hqs.ts reads these
 -- tables. No historical backfill.
 --
--- Run order: after 0021.
+-- Run order: after 0022.
 
 -- ---------------------------------------------------------------------------
 -- 1. Hiring opportunities — the parent container multiple candidate reports
@@ -59,7 +59,7 @@ create index if not exists hiring_opportunities_org_role_idx
 -- ---------------------------------------------------------------------------
 --    actor_type: ONLY 'candidate' and 'system' are legal values today.
 --    'hr' is DELIBERATELY not yet a legal value — mirrors reporter_type's own
---    history exactly (migration 0000 reserved it as candidate-only; 0019
+--    history exactly (migration 0000 reserved it as candidate-only; 0020
 --    widened it once the product was ready). Widening this CHECK to admit
 --    'hr' is a future migration, gated on organization-level authentication
 --    existing at all (it does not today — see the scope note above). This is

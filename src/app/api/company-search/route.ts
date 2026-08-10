@@ -6,7 +6,7 @@ import { checkAndRecordRateLimit } from "@/lib/rate-limit";
 import { searchOrganizationsRanked } from "@/lib/company-intelligence/resolve";
 
 /**
- * Ranked company search for the submit-flow confirmation UI (migration 0021).
+ * Ranked company search for the submit-flow confirmation UI (migration 0022).
  * Read-only public reference data — same trust class as /companies' own
  * search (directory.ts), so the anon client is correct here, same as there.
  *

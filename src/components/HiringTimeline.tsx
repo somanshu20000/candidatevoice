@@ -1,6 +1,6 @@
 /**
  * Hiring timeline — read-only render of hiring_opportunities + their events
- * (migration 0022). Neutral canonical language only; every line is generated
+ * (migration 0023). Neutral canonical language only; every line is generated
  * from a structured event, never free text. Candidate perception is always
  * labelled as perception; a system inference is always visually and textually
  * marked as derived, never presented as an observed fact.

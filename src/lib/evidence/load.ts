@@ -30,7 +30,7 @@ export interface RawFirstPartyRow {
   reason: string | null;
   payment_flag: boolean | null;
   reported_month: string | null;
-  /** Which of the three relationships this report is (migration 0019).
+  /** Which of the three relationships this report is (migration 0020).
    *  Defaults to 'candidate' at the DB level. */
   reporter_type: string | null;
   /** First-party only (migration 0014) — no column on external_reports. */
@@ -41,7 +41,7 @@ export interface RawFirstPartyRow {
   salary_proof_type: string | null;
   salary_proof_stage: string | null;
   salary_range_disclosed: string | null;
-  /** Tenure-stage practices, first-party only (migration 0019). Same rule:
+  /** Tenure-stage practices, first-party only (migration 0020). Same rule:
    *  null = unanswered (excluded), NOT "no". */
   exit_experience_letter: string | null;
   exit_settlement: string | null;

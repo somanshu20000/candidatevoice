@@ -640,7 +640,7 @@ export default async function CompanyPage({ params, searchParams }: Props) {
     ? await loadSimilarCompanies(supabase as unknown as SupabaseClient, profile.organizationId).catch(() => [])
     : [];
 
-  // Hiring-intent timeline (migration 0022) — read-only, and deliberately
+  // Hiring-intent timeline (migration 0023) — read-only, and deliberately
   // INDEPENDENT of the evidence gate below: hiring_opportunities/hiring_events
   // can exist for a company with zero approved hiring_submissions (candidate
   // reports awaiting moderation still emit events), so this must be computed
@@ -729,7 +729,7 @@ export default async function CompanyPage({ params, searchParams }: Props) {
   // Compensation transparency & privacy (0018) — same engine, own reduction.
   const compensation = buildCompensationProfile(items);
   const privacyScore = computePrivacyScore(compensation);
-  // Tenure stages (0019) — offboarding/culture/conduct, same engine again.
+  // Tenure stages (0020) — offboarding/culture/conduct, same engine again.
   const offboarding = buildOffboardingProfile(items);
   const exitIntegrity = computeExitIntegrityScore(offboarding);
   const culture = cultureSignal(items);
@@ -795,13 +795,13 @@ export default async function CompanyPage({ params, searchParams }: Props) {
             at least one dimension clears its floor. */}
         <CompensationPanel profile={compensation} score={privacyScore} />
 
-        {/* Tenure-stage panels (0019) — from employees and former employees,
+        {/* Tenure-stage panels (0020) — from employees and former employees,
             each self-suppressing below its own floor. Ordered safest-first. */}
         <OffboardingPanel profile={offboarding} score={exitIntegrity} />
         <CulturePanel signal={culture} />
         <ConductPanel signal={conduct} />
 
-        {/* Hiring activity timeline (0022) — self-suppressing: renders nothing
+        {/* Hiring activity timeline (0023) — self-suppressing: renders nothing
             until at least one opportunity has events. */}
         <HiringTimeline opportunities={hiringOpportunities} />
 

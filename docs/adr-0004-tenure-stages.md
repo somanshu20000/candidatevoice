@@ -1,6 +1,6 @@
 # ADR-0004 — Tenure Stages: employees and leavers, not just interviewees
 
-**Status:** Accepted · implemented (migrations 0019, 0020;
+**Status:** Accepted · implemented (migrations 0020, 0021;
 `src/lib/fingerprint/{offboarding,culture,conduct}.ts`, submit-flow relationship
 selector, company-page panels, `src/components/charts/Bar.tsx`)
 **Builds on:** ADR-0001 (evidence model) · ADR-0002 (Evidence Engine)
@@ -23,7 +23,7 @@ than an anonymous candidate report."
 ### 1. One field widens, three question sets unlock
 
 `reporter_type` went from a single valid value (`'candidate'`) to three
-(`candidate | employee | former_employee`) in migration 0019. No new column,
+(`candidate | employee | former_employee`) in migration 0020. No new column,
 no data migration — every existing row was already `'candidate'`. Each new
 enum column added (exit letter/settlement/documentation, would-recommend,
 tenure bucket, conduct environment) follows migration 0018's exact discipline:
@@ -35,7 +35,7 @@ scored good or bad; `"na"`/`"none"` are answers that do count.
 
 `stage`, `outcome`, `response_time_bucket`, `last_interaction_gap` were `NOT
 NULL` from the baseline — a constraint that only made sense when every
-reporter was a candidate. Migration 0020 drops that constraint on all four.
+reporter was a candidate. Migration 0021 drops that constraint on all four.
 The Evidence Engine's existing eligibility-gate pattern (`field !== null`)
 does the rest with zero engine changes: a tenure report with these columns
 null simply doesn't contribute to ghosting/offer/response-speed/process-depth.

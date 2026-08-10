@@ -1,6 +1,6 @@
 # ADR-0005 — Company Identity + Longitudinal Hiring Intent
 
-**Status:** Accepted · implemented (migrations 0021–0023;
+**Status:** Accepted · implemented (migrations 0022–0024;
 `src/lib/company-intelligence/resolve.ts`, `src/lib/hiring-intent/*`,
 `/api/company-search`, submit-flow `CompanyPicker` + seriousness step,
 `HiringTimeline`)
@@ -19,7 +19,7 @@ would each create a permanent new row with zero human confirmation.
 
 ### Decision
 
-1. **Ranked, never resolved.** `search_organizations_ranked()` (0021) returns
+1. **Ranked, never resolved.** `search_organizations_ranked()` (0022) returns
    a scored list — exact slug/alias (1.0), exact domain (0.95), exact
    normalized name (0.85), trigram similarity (0.4–0.84). It never returns a
    single winner; the submit UI always requires an explicit "This is the
@@ -35,7 +35,7 @@ would each create a permanent new row with zero human confirmation.
    typed text is preserved verbatim ("Anemoi Technologies", never slugified)
    — evidence is never blocked on identity resolving.
 4. **Every new signal was already in the pipeline.** `wikidata_qid` was
-   already fetched by the Wikidata adapter and previously discarded — 0021
+   already fetched by the Wikidata adapter and previously discarded — 0022
    just keeps it. `normalized_domain` reads `company_links`, already 85%
    populated by the existing enrichment pipeline. No LinkedIn, no scraping.
 
@@ -66,7 +66,7 @@ without losing the timeline that makes the answer trustworthy.
    moderation state, only new events.
 2. **`actor_type` admits only `candidate` and `system` today** — `'hr'` is
    not a legal CHECK value, mirroring `reporter_type`'s own history
-   (`candidate`-only at baseline, widened in 0019 once the product was
+   (`candidate`-only at baseline, widened in 0020 once the product was
    ready). No route, no UI, no future refactor can start writing HR events
    without a deliberate migration first. No HR authentication was invented;
    none exists in this app.
@@ -99,7 +99,7 @@ without losing the timeline that makes the answer trustworthy.
 
 ### Bugs found and fixed during live verification (both now confirmed working)
 
-- **RLS gap (fixed, migration 0023):** `hiring_opportunities`/`hiring_events`
+- **RLS gap (fixed, migration 0024):** `hiring_opportunities`/`hiring_events`
   had RLS enabled with **zero** SELECT policies — unlike `hiring_submissions`,
   which has an explicit `is_approved`-scoped read policy. Because the public
   views use `security_invoker = on`, the anon role querying through them

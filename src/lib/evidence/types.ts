@@ -61,7 +61,7 @@ export interface EvidenceItem {
   reportedMonth: string | null;
 
   /**
-   * Reporter relationship (migration 0019). Present in both families, but
+   * Reporter relationship (migration 0020). Present in both families, but
    * external is always 'candidate' (a forum post is interview-context). This is
    * the field the tenure dimensions filter on so an employee's culture answer
    * never lands in an interview metric and vice versa.
@@ -98,7 +98,7 @@ export interface EvidenceItem {
   salaryProofType: SalaryProofType | null;
   salaryProofStage: SalaryProofStage | null;
   salaryRangeDisclosed: SalaryRangeDisclosed | null;
-  /** Tenure-stage practices (migration 0019). Same first-party asymmetry: an
+  /** Tenure-stage practices (migration 0020). Same first-party asymmetry: an
    *  external forum post has no equivalent columns, so these are always null on
    *  external. null = did not answer (excluded), never "no"; "na"/"none" are
    *  answers. The offboarding/culture/conduct engines read these. */

@@ -1,5 +1,5 @@
 /**
- * Hiring-opportunity matching + event persistence (migration 0022).
+ * Hiring-opportunity matching + event persistence (migration 0023).
  *
  * ONE deterministic tier: same organization_id + same normalized role_key +
  * an opportunity that hasn't gone stale yet → attach; otherwise create a new

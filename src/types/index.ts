@@ -35,16 +35,16 @@ export type SalaryProofStage = "none" | "screening" | "interview" | "before_offe
 export type SalaryRangeDisclosed = "in_posting" | "before_first" | "before_final" | "at_offer" | "never";
 
 /**
- * Reporter relationship (migration 0019). The one field that says which of the
+ * Reporter relationship (migration 0020). The one field that says which of the
  * three question sets a report belongs to. 'candidate' = interviewed here (the
- * only value before 0019); 'employee' = currently works here; 'former_employee'
+ * only value before 0020); 'employee' = currently works here; 'former_employee'
  * = used to work here. External evidence is always interview-context, so it
  * normalises to 'candidate'.
  */
 export type ReporterType = "candidate" | "employee" | "former_employee";
 
 /**
- * Tenure-stage practices (migration 0019). First-party only, all optional, and
+ * Tenure-stage practices (migration 0020). First-party only, all optional, and
  * "NULL is not NO" like the 0018 salary fields: `null` = did not answer
  * (excluded from the metric), whereas `"na"` / `"none"` are real answers.
  * `"not_received"` is a FACT the reporter observed — never phrased as
@@ -103,7 +103,7 @@ export interface HiringSubmission {
   company: string;
   role: string;
   experience_bucket: ExperienceBucket;
-  /** Nullable since migration 0020 — an employee/former_employee report never
+  /** Nullable since migration 0021 — an employee/former_employee report never
    *  went through an interview process, so these four have no honest value. A
    *  candidate report must still supply them (enforced at the route). */
   stage: HiringStage | null;
@@ -122,7 +122,7 @@ export interface HiringSubmission {
    *  via resolve_organization()/create-on-miss; null only if that resolution
    *  itself failed (fail-open — a submission is never dropped over it). */
   organization_id?: string | null;
-  /** Which of the three relationships this report is (migration 0019).
+  /** Which of the three relationships this report is (migration 0020).
    *  Defaults to 'candidate' when absent. */
   reporter_type?: ReporterType;
   /** Optional — see ApplicationChannel. Migration 0014. */
@@ -133,7 +133,7 @@ export interface HiringSubmission {
   salary_proof_type?: SalaryProofType | null;
   salary_proof_stage?: SalaryProofStage | null;
   salary_range_disclosed?: SalaryRangeDisclosed | null;
-  /** Tenure-stage practices (migration 0019). All optional; null means
+  /** Tenure-stage practices (migration 0020). All optional; null means
    *  unanswered, never "no". See each type above. */
   exit_experience_letter?: ExitExperienceLetter | null;
   exit_settlement?: ExitSettlement | null;

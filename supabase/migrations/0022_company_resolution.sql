@@ -15,7 +15,7 @@
 -- website-meta.ts; the Wikidata QID, already fetched by wikidata.ts and
 -- previously discarded) or a zero-dependency Postgres extension (pg_trgm).
 --
--- Run order: after 0020.
+-- Run order: after 0021.
 
 -- ---------------------------------------------------------------------------
 -- 1. Trigram similarity — the fuzzy-match layer resolve_organization() has

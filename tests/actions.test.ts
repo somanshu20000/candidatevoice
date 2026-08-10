@@ -173,7 +173,7 @@ describe("sunset invariant", () => {
   });
 });
 
-describe("tenure-stage wiring (migration 0019)", () => {
+describe("tenure-stage wiring (migration 0020)", () => {
   it("offboarding is opt-in — no exit_* flag without the profile, even with bad leaver evidence", () => {
     const items = fixture(12, 5, 3); // the interview fixture only; no leaver rows at all
     const fp = buildBehaviouralFingerprint(set(items));
