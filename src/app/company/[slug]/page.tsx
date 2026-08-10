@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
 import {
   loadEvidence,
   loadExternalDisplayRows,
@@ -38,6 +38,8 @@ import Footer from "@/components/Footer";
 import CompanyOverview, { CompanyActions } from "@/components/CompanyOverview";
 import ProfileEnrichment from "@/components/ProfileEnrichment";
 import Bar from "@/components/charts/Bar";
+import HiringTimeline from "@/components/HiringTimeline";
+import { loadHiringOpportunities, recordStaleInferenceIfDue } from "@/lib/hiring-intent/timeline";
 import { loadCompanyProfile } from "@/lib/company-intelligence/read";
 import { loadSimilarCompanies } from "@/lib/company-intelligence/similar";
 import type { SimilarCompany } from "@/lib/company-intelligence/similar";
@@ -638,6 +640,36 @@ export default async function CompanyPage({ params, searchParams }: Props) {
     ? await loadSimilarCompanies(supabase as unknown as SupabaseClient, profile.organizationId).catch(() => [])
     : [];
 
+  // Hiring-intent timeline (migration 0022) — read-only, and deliberately
+  // INDEPENDENT of the evidence gate below: hiring_opportunities/hiring_events
+  // can exist for a company with zero approved hiring_submissions (candidate
+  // reports awaiting moderation still emit events), so this must be computed
+  // before the rawTotal===0 early return, not after it — a company with a
+  // pending-moderation candidate report should still show its hiring timeline.
+  //
+  // This is also the deliberately "opportunistic" staleness path: no
+  // scheduler exists, so any opportunity past its deadline gets its
+  // system_stale_inference event recorded here, on read, then the timeline is
+  // re-read so the new inference shows immediately. Isolated from evidence
+  // entirely — a failure here is swallowed and never affects the
+  // fingerprint/HQS/forecast built further down.
+  let hiringOpportunities: Awaited<ReturnType<typeof loadHiringOpportunities>> = [];
+  if (profile?.organizationId) {
+    try {
+      hiringOpportunities = await loadHiringOpportunities(supabase as unknown as SupabaseClient, profile.organizationId);
+      const due = hiringOpportunities.filter(
+        (o) => new Date(o.observationDeadlineAt).getTime() < Date.now() && !o.events.some((e) => e.eventType === "system_stale_inference")
+      );
+      if (due.length > 0) {
+        const admin = createAdminClient() as unknown as SupabaseClient;
+        await Promise.all(due.map((o) => recordStaleInferenceIfDue(admin, o)));
+        hiringOpportunities = await loadHiringOpportunities(supabase as unknown as SupabaseClient, profile.organizationId);
+      }
+    } catch {
+      hiringOpportunities = [];
+    }
+  }
+
   // No evidence at all — the "seeded from imported metadata, no reports yet" state.
   if (rawTotal === 0) {
     return (
@@ -665,6 +697,10 @@ export default async function CompanyPage({ params, searchParams }: Props) {
           {profile?.hasMetadata && <CompanyOverview profile={profile} />}
 
           <SimilarCompanies rows={similar} />
+
+          {/* Self-suppressing — renders only when a pending-moderation candidate
+              report already produced hiring-intent events. */}
+          <HiringTimeline opportunities={hiringOpportunities} />
 
           <div className="border border-dashed border-rule-strong bg-paper-sheet rounded-sm p-12 text-center">
             <p className="text-ink-soft mb-1">No CandidateVoice hiring reports yet.</p>
@@ -764,6 +800,10 @@ export default async function CompanyPage({ params, searchParams }: Props) {
         <OffboardingPanel profile={offboarding} score={exitIntegrity} />
         <CulturePanel signal={culture} />
         <ConductPanel signal={conduct} />
+
+        {/* Hiring activity timeline (0022) — self-suppressing: renders nothing
+            until at least one opportunity has events. */}
+        <HiringTimeline opportunities={hiringOpportunities} />
 
         {/* Personalised answer, when the visitor has set priorities. */}
         {fitForYou && fitExplanation && (

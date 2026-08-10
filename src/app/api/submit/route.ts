@@ -15,6 +15,8 @@ import { checkAndRecordRateLimit } from "@/lib/rate-limit";
 import { getClientIp } from "@/lib/client-ip";
 import { FACET_KEYS, EMOTION_KEYS, type FacetKey, type EmotionKey } from "@/lib/fingerprint/taxonomy";
 import type { ApplicationChannel, ReporterType } from "@/types/index";
+import { findOrCreateOpportunity, recordHiringEvents } from "@/lib/hiring-intent/match";
+import { buildCandidateEvents } from "@/lib/hiring-intent/events";
 
 const MAX_SUBMISSIONS_PER_HOUR = 5;
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
@@ -217,6 +219,11 @@ export async function POST(req: NextRequest) {
       organization_id?: unknown;
       company_not_listed?: unknown;
       company_request_domain?: unknown;
+      /** Hiring-intent (0022) — the only genuinely new candidate fields;
+       *  interview_occurred/candidate_outcome/candidate_follow_up events reuse
+       *  stage/outcome/last_interaction_gap already collected above. */
+      perceived_seriousness?: unknown;
+      intent_reasons?: unknown;
     };
 
     // Reporter relationship (migration 0019) — absent defaults to 'candidate',
@@ -356,7 +363,7 @@ export async function POST(req: NextRequest) {
     // in one transaction, so a Family B insert failure never leaves an
     // orphaned Family A row behind (or vice versa). Cast because the RPC is
     // not in the hand-authored Database type.
-    const { error } = await (supabase as unknown as SupabaseClient).rpc("submit_hiring_report", {
+    const { data: submissionId, error } = await (supabase as unknown as SupabaseClient).rpc("submit_hiring_report", {
       p_submission: payload,
       p_ratings: ratingsValidation.value,
       p_emotions: emotionsValidation.value,
@@ -364,6 +371,33 @@ export async function POST(req: NextRequest) {
 
     if (error) {
       return NextResponse.json({ error: "Unable to submit right now." }, { status: 500 });
+    }
+
+    // Hiring-intent events (0022) — candidate-only, and only when a REAL
+    // organization was confirmed (the "isn't listed" path has no opportunity
+    // to attach to). Reuses stage/outcome/last_interaction_gap already
+    // validated above rather than asking for them twice; perceived_seriousness
+    // and intent_reasons are the only genuinely new fields. Best-effort: a
+    // failure here must never cost the submission that already succeeded.
+    if (isCandidate && payload.organization_id && typeof submissionId === "string") {
+      const opportunityId = await findOrCreateOpportunity(supabase, payload.organization_id, payload.role);
+      if (opportunityId) {
+        const reportedMonth = new Date().toISOString().slice(0, 7); // YYYY-MM, same coarsening as public_submissions
+        const events = buildCandidateEvents({
+          stage: payload.stage,
+          perceivedSeriousness: typeof body.perceived_seriousness === "string" ? body.perceived_seriousness : null,
+          intentReasons: Array.isArray(body.intent_reasons) ? body.intent_reasons.filter((r): r is string => typeof r === "string") : [],
+          outcome: payload.outcome,
+          lastContactGap: payload.last_interaction_gap,
+          submissionId,
+          reportedMonth,
+        });
+        // Every candidate report that attaches to an opportunity leaves at
+        // least this one event, even if every optional signal above was
+        // skipped — the timeline should never look empty for a real report.
+        events.unshift({ actorType: "candidate", eventType: "role_reported", payload: {}, submissionId, reportedMonth });
+        await recordHiringEvents(supabase, opportunityId, events);
+      }
     }
 
     const existingRaw = req.cookies.get(COOKIE_NAME)?.value;

@@ -25,6 +25,13 @@ function item(fields: Partial<EvidenceItem> & Pick<EvidenceItem, "id">): Evidenc
     callDuration: null, firstInteractionOutcome: null, applicationChannel: null,
     salaryHistoryStage: null, salaryProofType: null, salaryProofStage: null,
     salaryRangeDisclosed: null, extractionConfidence: null,
+    reporterType: "candidate",
+    exitExperienceLetter: null,
+    exitSettlement: null,
+    exitDocumentation: null,
+    wouldRecommend: null,
+    tenureBucket: null,
+    conductEnvironment: null,
     ...fields,
   };
 }
@@ -134,6 +141,13 @@ describe("the composite", () => {
         salaryProofType: "bank_statement",
         salaryProofStage: "screening",
         salaryRangeDisclosed: "never",
+        reporterType: "candidate",
+        exitExperienceLetter: null,
+        exitSettlement: null,
+        exitDocumentation: null,
+        wouldRecommend: null,
+        tenureBucket: null,
+        conductEnvironment: null,
       })
     );
     const r = computePrivacyScore(buildCompensationProfile(items))!;

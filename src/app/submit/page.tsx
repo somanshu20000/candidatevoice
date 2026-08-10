@@ -20,6 +20,21 @@ import type {
   TenureBucket,
   ConductEnvironment,
 } from "@/types/index";
+import type { PerceivedSeriousness, IntentReason } from "@/lib/hiring-intent/events";
+import { INTENT_REASON_VALUES } from "@/lib/hiring-intent/events";
+
+/** Human labels for the closed intent-reason enum (migration 0022). */
+const INTENT_REASON_LABELS: Record<IntentReason, string> = {
+  recruiter_responsiveness: "Recruiter responsiveness",
+  interview_scheduling: "Interview scheduling",
+  hiring_manager_involvement: "Hiring manager involvement",
+  role_clarity: "Clarity of the role",
+  salary_discussion: "Salary discussion",
+  repeated_delays: "Repeated delays",
+  vague_process: "Vague hiring process",
+  role_disappeared: "Role disappeared",
+  hiring_freeze_signals: "Signs of a hiring freeze",
+};
 import {
   DIMENSIONS,
   EMOTIONS,
@@ -90,6 +105,10 @@ interface FormState {
   salary_proof_type: SalaryProofType | "";
   salary_proof_stage: SalaryProofStage | "";
   salary_range_disclosed: SalaryRangeDisclosed | "";
+  /** Hiring-intent perception (migration 0022). Candidate-only, optional, and
+   *  explicitly a PERCEPTION — never rendered as objective fact. "" → no event. */
+  perceived_seriousness: PerceivedSeriousness | "";
+  intent_reasons: IntentReason[];
   /** Tenure-stage practices (migration 0019). All optional; "" → null. */
   exit_experience_letter: ExitExperienceLetter | "";
   exit_settlement: ExitSettlement | "";
@@ -169,6 +188,7 @@ const EMPTY: FormState = {
   call_duration: "", first_interaction_outcome: "",
   reason: "", payment_flag: "",
   salary_history_stage: "", salary_proof_type: "", salary_proof_stage: "", salary_range_disclosed: "",
+  perceived_seriousness: "", intent_reasons: [],
   exit_experience_letter: "", exit_settlement: "", exit_documentation: "",
   would_recommend: "", tenure_bucket: "", conduct_environment: "",
   ratings: {}, emotions: [],
@@ -548,6 +568,10 @@ export default function SubmitPage() {
         organization_id: form.company_organization_id,
         company_not_listed: form.company_not_listed,
         company_request_domain: form.company_not_listed ? form.company_request_domain || null : null,
+        // Hiring-intent (0022) — candidate-only perception; the route ignores
+        // these for non-candidate reporters and when no org was confirmed.
+        perceived_seriousness: isCandidate ? form.perceived_seriousness || null : null,
+        intent_reasons: isCandidate ? form.intent_reasons : [],
       }),
     });
 
@@ -909,6 +933,58 @@ export default function SubmitPage() {
                     <option value="never">Never shared</option>
                   </select>
                 </div>
+              </div>
+
+              {/* Hiring-intent perception (migration 0022). Explicitly YOUR
+                  impression, not a fact about the company. Structured reasons
+                  only — no free text — so this can never become an accusation. */}
+              <div className="border-t border-rule pt-5 space-y-4">
+                <div>
+                  <label htmlFor="seriousness" className={LABEL_CLS}>
+                    How serious did the company seem about hiring you? <span className="text-ink-faint font-normal">(your impression)</span>
+                  </label>
+                  <select id="seriousness" value={form.perceived_seriousness} onChange={(e) => set("perceived_seriousness", e.target.value as FormState["perceived_seriousness"])} className={SELECT_CLS}>
+                    <option value="">Prefer not to say</option>
+                    <option value="very_serious">Very serious</option>
+                    <option value="serious">Serious</option>
+                    <option value="neutral">Neutral / hard to tell</option>
+                    <option value="not_serious">Not very serious</option>
+                    <option value="very_not_serious">Not serious at all</option>
+                  </select>
+                  <p className="text-xs text-ink-faint mt-1.5">
+                    This is recorded as your perception, shown alongside other candidates&apos; — never as a claim about what the company intended.
+                  </p>
+                </div>
+                {form.perceived_seriousness !== "" && (
+                  <div>
+                    <span className="block text-[10px] font-mono uppercase tracking-wider text-ink-muted mb-2">
+                      What shaped that impression? <span className="text-ink-faint normal-case">(optional, pick any)</span>
+                    </span>
+                    <div className="flex flex-wrap gap-2">
+                      {INTENT_REASON_VALUES.map((reason) => {
+                        const on = form.intent_reasons.includes(reason);
+                        return (
+                          <button
+                            key={reason}
+                            type="button"
+                            aria-pressed={on}
+                            onClick={() =>
+                              setForm((f) => ({
+                                ...f,
+                                intent_reasons: on ? f.intent_reasons.filter((r) => r !== reason) : [...f.intent_reasons, reason],
+                              }))
+                            }
+                            className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
+                              on ? "bg-accent border-accent text-paper-sheet" : "border-rule-strong text-ink-soft bg-paper hover:border-ink-faint"
+                            }`}
+                          >
+                            {INTENT_REASON_LABELS[reason]}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
