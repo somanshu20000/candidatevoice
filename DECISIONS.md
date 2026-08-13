@@ -405,6 +405,56 @@ existing Behavioural Fingerprint panel, which is also not cohort-scoped).
 
 ---
 
+## D-019 · PixelRAG is an optional extraction adapter, never the truth layer
+**Status:** Accepted (boundary only) · not implemented · 2026-08-14
+
+If PixelRAG (or any future visual/automated extraction tool) is ever adopted,
+it sits strictly **before** normalization, at the same position `scripts/`'s
+existing adapters occupy today — never inside the trust boundary.
+
+**The conceptual flow, recorded so nobody builds it out of order:**
+
+```
+Permitted external source
+        ↓
+PixelRAG / extraction adapter
+        ↓
+strict structured JSON (a contract this codebase defines, not PixelRAG)
+        ↓
+CandidateVoice normalize() (src/lib/hiring-intel or equivalent)
+        ↓
+validation + provenance + content hash
+        ↓
+moderation
+        ↓
+trust/extraction weighting (src/lib/hiring-intel/weighting.ts)
+        ↓
+Unified Evidence Engine (src/lib/evidence)
+        ↓
+Fingerprint / HQS / Search / Analytics
+```
+
+**PixelRAG (or any such tool) must never:** be the database; be the source of
+truth; write directly to Supabase; bypass validation or moderation; decide
+truth or evidence weight itself; bypass robots.txt, ToS, authentication, access
+controls, or rate limits; be treated as permission to scrape a site; or
+introduce raw page bodies, author PII, comments, or arbitrary UGC into the
+evidence model. It is analogous to a camera or scanner: it helps the pipeline
+*see*, never *judge*.
+
+**Why recorded now, built later:** the existing external-ingestion pipeline
+(migrations 0008/0009/0011, `src/lib/hiring-intel/*`) already enforces exactly
+this shape for every adapter that exists today (D-005's declined scrapers
+included) — this decision commits any *future* extraction tool to the same
+boundary before one is built, rather than leaving it to be decided under
+pressure once a specific adapter is halfway written.
+**Not started:** no PixelRAG code exists in this repository. Building it is
+explicitly out of scope until the core product (search → organization
+resolution → evidence → fingerprint → company page) is genuinely finished —
+see the 2026-08-14 audit in this log for what "finished" currently means.
+
+---
+
 ## Open questions (decisions *not* yet made)
 
 | # | Question | Blocked on |
