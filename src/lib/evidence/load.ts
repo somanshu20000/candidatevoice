@@ -137,6 +137,54 @@ export async function loadAllExternalRows(client: SupabaseClient): Promise<RawEx
   return rows;
 }
 
+export interface RawFacetRating {
+  submissionId: string;
+  facetKey: string;
+  rating: number;
+}
+
+export interface RawEmotionSelection {
+  submissionId: string;
+  emotionKey: string;
+}
+
+/**
+ * Ratings/emotions for a set of already-known submission ids — the caller
+ * gets these for free from the first-party items loadEvidence() already
+ * fetched (EvidenceItem.id === hiring_submissions.id), so this never needs
+ * its own organization_id lookup. Both tables are anon-readable directly
+ * (migration 0003's RLS already gates on approved+non-rejected — no
+ * coarsening view is needed here since neither table carries a timestamp
+ * column to leak). Returns [] on any error or an empty input, mirroring
+ * loadExternalDisplayRows: these are supplementary panels that must never
+ * block the page.
+ */
+export async function loadFacetRatings(client: SupabaseClient, submissionIds: string[]): Promise<RawFacetRating[]> {
+  if (submissionIds.length === 0) return [];
+  const { data, error } = await client
+    .from("submission_ratings")
+    .select("submission_id, facet_key, rating")
+    .in("submission_id", submissionIds);
+  if (error) return [];
+  return (data ?? []).map((r) => {
+    const row = r as Record<string, unknown>;
+    return { submissionId: String(row.submission_id), facetKey: String(row.facet_key), rating: Number(row.rating) };
+  });
+}
+
+export async function loadFacetEmotions(client: SupabaseClient, submissionIds: string[]): Promise<RawEmotionSelection[]> {
+  if (submissionIds.length === 0) return [];
+  const { data, error } = await client
+    .from("submission_emotions")
+    .select("submission_id, emotion_key")
+    .in("submission_id", submissionIds);
+  if (error) return [];
+  return (data ?? []).map((r) => {
+    const row = r as Record<string, unknown>;
+    return { submissionId: String(row.submission_id), emotionKey: String(row.emotion_key) };
+  });
+}
+
 export interface OrganizationRow {
   id: string;
   slug: string;

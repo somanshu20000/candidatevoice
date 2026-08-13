@@ -52,6 +52,13 @@ export async function loadEvidence(client: SupabaseClient, companySlug: string):
 export type { EvidenceItem, EvidenceSet, EvidenceBase, EvidenceFamily, MetricResult } from "./types";
 export { weightedRate, weightedMean, weightedShare, kishEffectiveN, describeBase } from "./aggregate";
 export { loadExternalDisplayRows, type ExternalReportDisplayRow } from "./load";
+export {
+  loadFacetRatings,
+  loadFacetEmotions,
+  type RawFacetRating,
+  type RawEmotionSelection,
+} from "./load";
+export { minimalEvidenceItem } from "./synthetic";
 export { capSourceShare, DEFAULT_MAX_SOURCE_SHARE } from "./cap";
 export {
   loadCompanyAnalytics,

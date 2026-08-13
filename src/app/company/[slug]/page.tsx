@@ -5,6 +5,8 @@ import { createClient, createAdminClient } from "@/lib/supabase/server";
 import {
   loadEvidence,
   loadExternalDisplayRows,
+  loadFacetRatings,
+  loadFacetEmotions,
   scopeToCohort,
   isEmptyCohort,
   describeCohort,
@@ -25,6 +27,8 @@ import { cultureSignal } from "@/lib/fingerprint/culture";
 import type { CultureSignal } from "@/lib/fingerprint/culture";
 import { conductSignal } from "@/lib/fingerprint/conduct";
 import type { ConductSignal } from "@/lib/fingerprint/conduct";
+import { buildLikertFingerprint, hasAnyLikertSignal } from "@/lib/fingerprint/likert";
+import type { LikertFingerprint } from "@/lib/fingerprint/likert";
 import { buildActionPlan } from "@/lib/fingerprint/actions";
 import type { ActionPlan, ActionTone } from "@/lib/fingerprint/actions";
 import type { ForecastLine, ForecastTone } from "@/lib/fingerprint/forecast";
@@ -40,6 +44,7 @@ import ProfileEnrichment from "@/components/ProfileEnrichment";
 import Bar from "@/components/charts/Bar";
 import HiringTimeline from "@/components/HiringTimeline";
 import { loadHiringOpportunities, recordStaleInferenceIfDue } from "@/lib/hiring-intent/timeline";
+import { buildHiringAnalytics } from "@/lib/hiring-intent/analytics";
 import { loadCompanyProfile } from "@/lib/company-intelligence/read";
 import { loadSimilarCompanies } from "@/lib/company-intelligence/similar";
 import type { SimilarCompany } from "@/lib/company-intelligence/similar";
@@ -461,6 +466,72 @@ function ConductPanel({ signal }: { signal: ConductSignal | null }) {
   );
 }
 
+/**
+ * Likert facet rollup + emotion tags (0003/0017) — what candidates said about
+ * the process itself: recruiter/interviewer conduct, respect and fairness,
+ * role clarity and pacing, pay/work-arrangement transparency. Self-suppressing
+ * like every other panel: renders nothing until at least one dimension or
+ * emotion clears its floor (hasAnyLikertSignal, checked by the caller).
+ * Facet-level detail is computed but not drilled into here — the dimension
+ * headline matches every other panel's depth; per-facet breakdown is a
+ * separate, later surface.
+ */
+function LikertPanel({ fingerprint }: { fingerprint: LikertFingerprint }) {
+  const shownDimensions = fingerprint.dimensions.filter((d) => !d.metric.suppressed && d.metric.value !== null);
+  const shownEmotions = fingerprint.emotions
+    .filter((e) => !e.metric.suppressed && e.metric.value !== null)
+    .sort((a, b) => (b.metric.value ?? 0) - (a.metric.value ?? 0))
+    .slice(0, 6);
+  if (shownDimensions.length === 0 && shownEmotions.length === 0) return null;
+
+  return (
+    <div className="border border-rule bg-paper-sheet rounded-sm p-6 shadow-sheet mb-8">
+      <h2 className="font-serif text-lg text-ink mb-1">How candidates described the process</h2>
+      <p className="text-xs text-ink-muted mb-4">
+        From structured ratings candidates left about recruiters, interviewers, and the process itself.
+      </p>
+      {shownDimensions.length > 0 && (
+        <div className="mb-4">
+          {shownDimensions.map((d) => {
+            const score = d.metric.value!;
+            const tone = score >= 70 ? "good" : score >= 40 ? "warn" : "bad";
+            return (
+              <div key={d.key} className="py-2.5 border-b border-rule last:border-0">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-ink-soft">{d.label}</span>
+                  <span className="font-mono text-sm font-medium text-ink tnum">
+                    {Math.round(score)}
+                    <span className="ml-2 text-[10px] text-ink-faint">({d.metric.rawDenominator} raw)</span>
+                  </span>
+                </div>
+                <Bar value={score} tone={tone} className="mt-1.5" />
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {shownEmotions.length > 0 && (
+        <div className="flex flex-wrap gap-2 pt-2">
+          {shownEmotions.map((e) => (
+            <span
+              key={e.key}
+              className={`text-xs px-2.5 py-1 rounded-full border ${
+                e.valence === "positive" ? "border-[#C5DBCC] text-good" : "border-[#E6C4BF] text-bad"
+              }`}
+            >
+              {e.label} · {Math.round((e.metric.value ?? 0) * 100)}%
+            </span>
+          ))}
+        </div>
+      )}
+      <p className="text-[10px] text-ink-faint mt-4 leading-relaxed">
+        Ratings and emotions are self-reported by candidates about their own process, never about a named
+        person. Suppressed below a minimum of reports, same as every other number on this page.
+      </p>
+    </div>
+  );
+}
+
 const ACTION_TONE: Record<ActionTone, { dot: string; text: string }> = {
   risk: { dot: "bg-bad", text: "text-bad" },
   caution: { dot: "bg-warn", text: "text-warn" },
@@ -669,6 +740,10 @@ export default async function CompanyPage({ params, searchParams }: Props) {
       hiringOpportunities = [];
     }
   }
+  // A pure reduction over what was just loaded — no new query. `new Date()`
+  // here is fine (it is not inside a pure/testable function): buildHiringAnalytics
+  // itself takes `now` as a parameter precisely so ITS tests never read the clock.
+  const hiringAnalytics = buildHiringAnalytics(hiringOpportunities, new Date(), profile?.organizationId ?? "unknown");
 
   // No evidence at all — the "seeded from imported metadata, no reports yet" state.
   if (rawTotal === 0) {
@@ -700,7 +775,7 @@ export default async function CompanyPage({ params, searchParams }: Props) {
 
           {/* Self-suppressing — renders only when a pending-moderation candidate
               report already produced hiring-intent events. */}
-          <HiringTimeline opportunities={hiringOpportunities} />
+          <HiringTimeline opportunities={hiringOpportunities} analytics={hiringAnalytics} />
 
           <div className="border border-dashed border-rule-strong bg-paper-sheet rounded-sm p-12 text-center">
             <p className="text-ink-soft mb-1">No CandidateVoice hiring reports yet.</p>
@@ -736,6 +811,18 @@ export default async function CompanyPage({ params, searchParams }: Props) {
   const conduct = conductSignal(items);
   // The decision layer over the same fingerprint + HQS: verdict + grounded flags.
   const actionPlan = buildActionPlan(fingerprint, hqs, compensation, offboarding, conduct);
+
+  // Likert facet ratings + emotion tags (0003/0017) — the submit wizard has
+  // collected these since D6/D7; this is their first read path. Keyed off the
+  // first-party items already in hand (EvidenceItem.id === hiring_submissions.id),
+  // so no second organization_id lookup. Degrades to [] on any error, same as
+  // every other supplementary panel on this page.
+  const firstPartySubmissionIds = items.filter((i) => i.family === "first_party").map((i) => i.id);
+  const [facetRatings, facetEmotions] = await Promise.all([
+    loadFacetRatings(supabase as unknown as SupabaseClient, firstPartySubmissionIds),
+    loadFacetEmotions(supabase as unknown as SupabaseClient, firstPartySubmissionIds),
+  ]);
+  const likertFingerprint: LikertFingerprint = buildLikertFingerprint(facetRatings, facetEmotions, evidenceSet!.organizationId);
 
   // "Fit for you" — only when the visitor has saved priorities. Pure over the
   // fingerprint already built above, so a visitor with a preference vector pays
@@ -803,7 +890,7 @@ export default async function CompanyPage({ params, searchParams }: Props) {
 
         {/* Hiring activity timeline (0023) — self-suppressing: renders nothing
             until at least one opportunity has events. */}
-        <HiringTimeline opportunities={hiringOpportunities} />
+        <HiringTimeline opportunities={hiringOpportunities} analytics={hiringAnalytics} />
 
         {/* Personalised answer, when the visitor has set priorities. */}
         {fitForYou && fitExplanation && (
@@ -898,6 +985,10 @@ export default async function CompanyPage({ params, searchParams }: Props) {
                 <StageBar items={items} />
               </div>
             </div>
+
+            {/* Likert facet rollup + emotions (0003/0017) — self-suppressing,
+                see hasAnyLikertSignal. */}
+            {hasAnyLikertSignal(likertFingerprint) && <LikertPanel fingerprint={likertFingerprint} />}
 
             {/* External reports — clearly labelled, source-linked, visually
                 distinct (dashed border, sunk background). Part 6 non-negotiable. */}

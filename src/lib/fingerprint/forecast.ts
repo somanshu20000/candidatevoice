@@ -22,9 +22,12 @@
  *   - Expected number of rounds. `stage` records the furthest stage reached,
  *     which is not a round count.
  *   - Take-home / weekend work / negotiation friendliness. No field collects them.
- *   - Emotional fingerprint and manager behaviour. Family B (submission_ratings,
- *     submission_emotions) has a write path but no collection UI, so it holds
- *     zero rows.
+ *   - Manager behaviour (leadership / work_culture). Those two dimensions are
+ *     employee-sourced and have no collection UI (adr-0004) — deliberately
+ *     out of scope, a different re-identification profile than a candidate
+ *     report. The candidate-sourced Likert facets and emotion tags DO have a
+ *     collection UI and ARE aggregated — see fingerprint/likert.ts, rendered
+ *     as its own panel, not folded into this forecast.
  *   - Preparation advice ("prepare for SQL"). That is generated text, which
  *     ADR-0001 forbids outright — every claim must trace to a source.
  * Adding any of them means collecting the evidence first, not inferring it.

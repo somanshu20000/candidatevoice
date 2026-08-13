@@ -11,6 +11,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { computeStaleness } from "./stale";
 import type { EventType, EventPayload, ActorType } from "./events";
+import { ANALYTICS_ROW_CAP } from "@/lib/evidence/load";
 
 export interface PublicHiringEvent {
   id: string;
@@ -49,6 +50,28 @@ interface EventRow {
 }
 
 /**
+ * Group event rows by opportunity and hydrate into the public shape. Shared by
+ * both loaders below so the org-scoped and cross-company reads stay byte-for-
+ * byte consistent — no risk of the two paths drifting on how a row maps.
+ */
+function hydrateOpportunities(opps: OppRow[], events: EventRow[]): PublicHiringOpportunity[] {
+  const eventsByOpp = new Map<string, PublicHiringEvent[]>();
+  for (const e of events) {
+    const list = eventsByOpp.get(e.hiring_opportunity_id) ?? [];
+    list.push({ id: e.id, actorType: e.actor_type as ActorType, eventType: e.event_type as EventType, payload: e.payload, reportedMonth: e.reported_month });
+    eventsByOpp.set(e.hiring_opportunity_id, list);
+  }
+  return opps.map((o) => ({
+    id: o.id,
+    roleKey: o.role_key,
+    firstObservedAt: o.first_observed_at,
+    lastActivityAt: o.last_activity_at,
+    observationDeadlineAt: o.observation_deadline_at,
+    events: eventsByOpp.get(o.id) ?? [],
+  }));
+}
+
+/**
  * Load every hiring opportunity + its public event timeline for a company.
  * Read-only surface — never mutates. Opportunistic staleness recording (see
  * recordStaleInferenceIfDue) is a SEPARATE, explicit call the caller makes,
@@ -74,21 +97,42 @@ export async function loadHiringOpportunities(
     .in("hiring_opportunity_id", ids)
     .order("id", { ascending: true }); // insertion order proxy — reported_month is coarser than createdAt and not reliable to sort on alone
 
-  const eventsByOpp = new Map<string, PublicHiringEvent[]>();
-  for (const e of (events ?? []) as EventRow[]) {
-    const list = eventsByOpp.get(e.hiring_opportunity_id) ?? [];
-    list.push({ id: e.id, actorType: e.actor_type as ActorType, eventType: e.event_type as EventType, payload: e.payload, reportedMonth: e.reported_month });
-    eventsByOpp.set(e.hiring_opportunity_id, list);
+  return hydrateOpportunities(opportunities, (events ?? []) as EventRow[]);
+}
+
+/**
+ * All hiring opportunities + their public events, across every company — the
+ * cross-company analytics read (mirrors loadAllFirstPartyRows/loadAllExternalRows
+ * in src/lib/evidence/load.ts exactly: throws rather than swallowing, same row
+ * cap, same cap-hit warning). Two queries total, grouped in memory — no N+1.
+ */
+export async function loadAllHiringOpportunities(supabase: SupabaseClient): Promise<PublicHiringOpportunity[]> {
+  const { data: opps, error: oppsError } = await supabase
+    .from("public_hiring_opportunities")
+    .select("id, role_key, first_observed_at, last_activity_at, observation_deadline_at")
+    .order("last_activity_at", { ascending: false })
+    .limit(ANALYTICS_ROW_CAP);
+  if (oppsError) throw new Error(`loadAllHiringOpportunities: ${oppsError.message}`);
+
+  const opportunities = (opps ?? []) as OppRow[];
+  if (opportunities.length === ANALYTICS_ROW_CAP) {
+    console.warn(`[hiring-intent] opportunities hit the ${ANALYTICS_ROW_CAP} cap — analytics are partial.`);
+  }
+  if (opportunities.length === 0) return [];
+
+  const ids = opportunities.map((o) => o.id);
+  const { data: events, error: eventsError } = await supabase
+    .from("public_hiring_events")
+    .select("id, hiring_opportunity_id, actor_type, event_type, payload, reported_month")
+    .in("hiring_opportunity_id", ids)
+    .order("id", { ascending: true })
+    .limit(ANALYTICS_ROW_CAP);
+  if (eventsError) throw new Error(`loadAllHiringOpportunities: ${eventsError.message}`);
+  if ((events ?? []).length === ANALYTICS_ROW_CAP) {
+    console.warn(`[hiring-intent] events hit the ${ANALYTICS_ROW_CAP} cap — analytics are partial.`);
   }
 
-  return opportunities.map((o) => ({
-    id: o.id,
-    roleKey: o.role_key,
-    firstObservedAt: o.first_observed_at,
-    lastActivityAt: o.last_activity_at,
-    observationDeadlineAt: o.observation_deadline_at,
-    events: eventsByOpp.get(o.id) ?? [],
-  }));
+  return hydrateOpportunities(opportunities, (events ?? []) as EventRow[]);
 }
 
 /**

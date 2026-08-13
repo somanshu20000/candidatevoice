@@ -17,6 +17,42 @@ import type {
   CandidateOutcomePayload,
   CandidateFollowUpPayload,
 } from "@/lib/hiring-intent/events";
+import { hasAnyHiringAnalytics, type HiringAnalytics } from "@/lib/hiring-intent/analytics";
+import type { MetricResult } from "@/lib/evidence";
+
+/** One stat cell: a number (or an honest dash) plus its raw sample size —
+ *  same "value + (N raw)" convention DimensionRow uses on this page. */
+function Stat({ label, value, metric, suffix = "" }: { label: string; value: string | null; metric: MetricResult; suffix?: string }) {
+  return (
+    <div>
+      <p className="text-[10px] font-mono uppercase tracking-wider text-ink-faint mb-1">{label}</p>
+      <p className="font-mono text-lg text-ink tnum">
+        {value === null ? <span className="text-ink-faint text-sm">— {metric.suppressionReason === "insufficient_evidence" ? "not enough reports" : "no data yet"}</span> : `${value}${suffix}`}
+      </p>
+      {value !== null && <p className="text-[10px] text-ink-faint tnum">{metric.rawDenominator} {metric.rawDenominator === 1 ? "opportunity" : "opportunities"}</p>}
+    </div>
+  );
+}
+
+/**
+ * Compact stats strip above the per-role timelines. Self-suppressing per cell
+ * (D-002/D-003: null renders as an honest dash, never a fabricated number) and
+ * as a whole (hasAnyHiringAnalytics gates the entire strip). HR-update
+ * frequency will read "no data yet" until D-011 (org auth) unblocks it — that
+ * is the correct, honest state, not a bug.
+ */
+function AnalyticsStrip({ analytics }: { analytics: HiringAnalytics }) {
+  if (!hasAnyHiringAnalytics(analytics)) return null;
+  const pct = (m: MetricResult) => (m.value === null ? null : Math.round(m.value * 100));
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6 pb-6 border-b border-rule">
+      <Stat label="Time to resolution" value={analytics.timeToResolutionDays === null ? null : String(analytics.timeToResolutionDays)} metric={analytics.resolutionMetric} suffix=" days" />
+      <Stat label="Stale-role rate" value={pct(analytics.staleRoleRate) === null ? null : String(pct(analytics.staleRoleRate))} metric={analytics.staleRoleRate} suffix="%" />
+      <Stat label="Perception matched outcome" value={pct(analytics.perceptionAccuracy) === null ? null : String(pct(analytics.perceptionAccuracy))} metric={analytics.perceptionAccuracy} suffix="%" />
+      <Stat label="HR update frequency" value={pct(analytics.hrUpdateFrequency) === null ? null : String(pct(analytics.hrUpdateFrequency))} metric={analytics.hrUpdateFrequency} suffix="%" />
+    </div>
+  );
+}
 
 const SERIOUSNESS_LABEL: Record<string, string> = {
   very_serious: "very serious",
@@ -69,7 +105,15 @@ function renderEvent(e: PublicHiringEvent): RenderedEvent | null {
   }
 }
 
-export default function HiringTimeline({ opportunities }: { opportunities: PublicHiringOpportunity[] }) {
+export default function HiringTimeline({
+  opportunities,
+  analytics,
+}: {
+  opportunities: PublicHiringOpportunity[];
+  /** Optional — company-page callers pass the pre-computed reduction (no new
+   *  query); omit entirely where analytics aren't relevant yet. */
+  analytics?: HiringAnalytics;
+}) {
   const withEvents = opportunities.filter((o) => o.events.length > 0);
   if (withEvents.length === 0) return null;
 
@@ -81,6 +125,7 @@ export default function HiringTimeline({ opportunities }: { opportunities: Publi
         impression; a &ldquo;stale&rdquo; note is an inference from the available reports, not a statement
         about the company&apos;s intent.
       </p>
+      {analytics && <AnalyticsStrip analytics={analytics} />}
       <div className="space-y-6">
         {withEvents.map((opp) => (
           <div key={opp.id}>
