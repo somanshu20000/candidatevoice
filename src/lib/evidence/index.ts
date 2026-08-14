@@ -88,3 +88,4 @@ export {
   APPLICATION_CHANNEL_LABELS,
   type CohortFilter,
 } from "./cohort";
+export { inspectEvidence, type EvidenceInspection, type InspectionBand } from "./inspector";

@@ -14,7 +14,9 @@ import {
   parseApplicationChannel,
   EXPERIENCE_BUCKET_LABELS,
   APPLICATION_CHANNEL_LABELS,
+  inspectEvidence,
 } from "@/lib/evidence";
+import { DIMENSION_MIN_EFFECTIVE_N } from "@/lib/fingerprint/behavioural";
 import type { EvidenceItem, ExternalReportDisplayRow, CohortFilter } from "@/lib/evidence";
 import { buildBehaviouralFingerprint, BEHAVIOURAL_DIMENSION_LABELS } from "@/lib/fingerprint/behavioural";
 import type { BehaviouralDimensionScore } from "@/lib/fingerprint/behavioural";
@@ -90,6 +92,38 @@ function tierBadge(tier: HqsTier) {
   return cfg[tier];
 }
 
+/** M4.3 Evidence Inspector — a plain <details> disclosure, zero client JS,
+ *  matching this project's JS-free UI preference. Reuses dim.base/dim.families
+ *  (already computed by behavioural.ts) via the pure inspectEvidence() —
+ *  no new metric, only a plain-English explanation of the numbers already on
+ *  the row above. Never renders anything beyond what EvidenceBase already
+ *  carries (counts + a YYYY-MM month) — no submission id, no moderation
+ *  actor/history (that ledger is admin-only, migration 0026). */
+function EvidenceInspector({ dim }: { dim: BehaviouralDimensionScore }) {
+  const inspection = inspectEvidence(dim.base, {
+    suppressed: dim.suppressed,
+    minEffectiveN: DIMENSION_MIN_EFFECTIVE_N,
+    label: dim.label,
+    families: dim.families,
+  });
+  const bandLabel =
+    inspection.band === "well_evidenced" ? "Well evidenced" : inspection.band === "limited" ? "Limited evidence" : "Insufficient evidence";
+  return (
+    <details className="mt-1.5 group">
+      <summary className="text-[11px] font-mono text-ink-faint cursor-pointer select-none hover:text-ink-muted transition-colors list-none">
+        How was this calculated? <span className="inline-block group-open:rotate-90 transition-transform">›</span>
+      </summary>
+      <div className="mt-1.5 pl-3 border-l-2 border-rule text-xs text-ink-muted space-y-1">
+        <p>{inspection.explanation}</p>
+        <p className="font-mono text-[10px] text-ink-faint">
+          {bandLabel} · {inspection.rawTotal} raw · {inspection.effectiveN.toFixed(1)} effective
+          {inspection.latestMonth ? ` · latest ${inspection.latestMonth}` : ""}
+        </p>
+      </div>
+    </details>
+  );
+}
+
 function DimensionRow({ dim }: { dim: BehaviouralDimensionScore }) {
   const inHqs = HQS_WEIGHTS[dim.key] > 0;
   const tone = dim.score === null ? "neutral" : dim.score >= 70 ? "good" : dim.score >= 40 ? "warn" : "bad";
@@ -112,6 +146,7 @@ function DimensionRow({ dim }: { dim: BehaviouralDimensionScore }) {
         </span>
       </div>
       <Bar value={dim.score} tone={tone} className="mt-1.5" />
+      <EvidenceInspector dim={dim} />
     </div>
   );
 }
