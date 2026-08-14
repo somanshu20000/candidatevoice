@@ -453,6 +453,74 @@ explicitly out of scope until the core product (search → organization
 resolution → evidence → fingerprint → company page) is genuinely finished —
 see the 2026-08-14 audit in this log for what "finished" currently means.
 
+**Amendment (2026-08-14, M3):** the M3 search architecture reaffirmed this and
+sharpened *why* PixelRAG is not adopted, on two grounds beyond "not yet":
+(a) **retriever ≠ extractor.** PixelRAG answers "which page-tiles look relevant
+to a query" (visual embedding + ANN over a corpus). CandidateVoice's external-
+ingestion need is the opposite — given ONE permitted page, extract ~8 enum
+fields into a strict JSON contract — which PixelRAG does not do; field
+extraction would still be a separate vision-model call. (b) **The bottleneck is
+permission, not parsing.** `external_reports = 0` because Q-2 is unresolved (no
+credentials, no licensed source, D-005 forecloses the richest one), not because
+pages are hard to parse. Better parsing of sources we may not acquire yields
+zero rows. The only conceivable future role is `pixelshot` (its renderer) alone,
+behind `src/lib/company-intelligence/http.ts` (robots + SSRF + rate-limit + UA),
+as a last resort when a *permitted* source is proven DOM-unparseable — gated on
+the benchmark in the M3 plan. The retrieval/search system itself is Postgres-only
+(D-020); PixelRAG is never part of it.
+
+---
+
+## D-020 · CandidateVoice search is PostgreSQL + a deterministic signal lexicon — no embeddings, no LLM
+**Status:** Accepted · 2026-08-14 · M3 Search & Discovery (`src/lib/search/*`)
+
+Search has two modes, one truth layer, and no second aggregation path:
+
+- **Entity search** (a company name / alias / domain) layers the ranked RPC
+  `search_organizations_ranked` (migration 0022 — exact/alias/domain/normalized/
+  trigram) over the original `.ilike` substring pass, RPC hits first, substring
+  as a floor the RPC's 0.4 trigram cutoff would otherwise drop (`searchCompanies`,
+  `directory.ts`). Evidence is a badge, NEVER a search-rank key — a zero-report
+  company is still findable by name.
+- **Signal search** (a hiring pattern) parses the query against a checked-in
+  lexicon of ~70 phrases over the 13 existing fingerprint dimensions
+  (`lexicon.ts`/`parse.ts`), then ranks with **gate → order → band** over the
+  EXISTING engine (`loadCompanyAnalytics`): gate = dimension not suppressed
+  (the effective-N floor already there); order = signalStrength × confidence ×
+  freshness (the last two imported unchanged from `evidence/rank.ts`); band =
+  well_evidenced / limited / insufficient, never interleaved. No metric is
+  computed anywhere in `src/lib/search`.
+
+**Why not pgvector / embeddings:** there is no free text in the evidence model
+to embed — every evidence column is a closed enum (D-005/D-019: no raw bodies,
+no UGC). On a closed vocabulary of 13 dimensions a synonym lexicon is *more*
+accurate than a cosine score, is deterministic, is unit-testable, and prints its
+own reasoning. Reversible: if narrative text ever enters the model, pgvector
+becomes justified and can be added on Supabase then, unwinding none of this.
+
+**Why no LLM in the request path (D-006 applied to search):** the query parser
+and explanations are deterministic templates; an integer-provenance test asserts
+every number in a generated explanation was an input, exactly as advisor/explain
+already does. An embedding/LLM call per query would also add a vendor, a latency
+floor, and a failure mode to the most-hit path on the site.
+
+**Unsupported constraints are named, never dropped:** location (`company_locations`
+= 0 rows) and absolute salary amounts (never collected) are detected and
+surfaced ("can't yet filter by office location"), instead of silently ignoring
+the constraint and returning results that appear to honour it.
+
+**One additive engine change:** `CompanyAnalytics` now also carries the
+compensation and offboarding profiles, built in the SAME bulk loop via the SAME
+pure builders the company page uses (`buildCompensationProfile` /
+`buildOffboardingProfile`) — so signal search can reach all 13 dimensions from
+one load. This is reuse, not a second aggregation path (D-001).
+
+**Cost:** the lexicon is hand-maintained (a new dimension needs its phrases
+added). Alias recall depends on `organization_aliases`, still sparse — the
+`scripts/backfill-organization-aliases.ts` dry-run derives ~262 collision-safe
+candidates but stays human-gated because the domain-stem source carries noise
+from mis-stored `company_links` rows.
+
 ---
 
 ## Open questions (decisions *not* yet made)

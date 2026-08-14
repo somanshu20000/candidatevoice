@@ -28,6 +28,10 @@ import { getGlobalExternalMultiplier } from "@/lib/hiring-intel/settings";
 import type { EvidenceItem, EvidenceBase } from "./types";
 import { buildBehaviouralFingerprint } from "@/lib/fingerprint/behavioural";
 import type { BehaviouralDimensionScore, BehaviouralFingerprint } from "@/lib/fingerprint/behavioural";
+import { buildCompensationProfile } from "@/lib/fingerprint/compensation";
+import type { CompensationProfile } from "@/lib/fingerprint/compensation";
+import { buildOffboardingProfile } from "@/lib/fingerprint/offboarding";
+import type { OffboardingProfile } from "@/lib/fingerprint/offboarding";
 import { computeHqs } from "@/utils/hqs";
 import type { HqsResult } from "@/utils/hqs";
 
@@ -44,6 +48,14 @@ export interface CompanyAnalytics {
    *  dimension (the candidate advisor's fit ranking, the market baseline) reuse
    *  this one bulk load instead of re-reading every company. */
   fingerprint: BehaviouralFingerprint;
+  /** Compensation-privacy and offboarding profiles, built from the SAME capped
+   *  items via the SAME pure builders the company page uses (buildCompensation
+   *  Profile / buildOffboardingProfile). Carried here — not recomputed — so M3
+   *  signal search can rank across ALL 13 lexicon dimensions from this one bulk
+   *  load, never a second aggregation path (D-001). Additive: existing
+   *  consumers (/analytics) ignore them. */
+  compensation: CompensationProfile;
+  offboarding: OffboardingProfile;
   base: EvidenceBase;
   /** True when HQS rendered (effectiveN ≥ gate) — only ranked companies. */
   ranked: boolean;
@@ -106,6 +118,8 @@ export async function loadCompanyAnalytics(client: SupabaseClient): Promise<Anal
       ghosting: fingerprint.dimensions.find((d) => d.key === "ghosting")!,
       responseSpeed: fingerprint.dimensions.find((d) => d.key === "response_speed")!,
       fingerprint,
+      compensation: buildCompensationProfile(items),
+      offboarding: buildOffboardingProfile(items),
       base: fingerprint.base,
       ranked: hqs !== null,
     });

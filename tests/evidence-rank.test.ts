@@ -37,9 +37,12 @@ function company(id: string, score: number | null, effectiveN: number, latestMon
   return {
     organizationId: id, slug: id, displayName: id,
     hqs: score === null ? null : hqs(score),
-    // ghosting/responseSpeed/fingerprint unused by rankCompanies — minimal stubs.
+    // ghosting/responseSpeed/fingerprint/compensation/offboarding unused by
+    // rankCompanies — minimal stubs.
     ghosting: null as never, responseSpeed: null as never,
     fingerprint: { dimensions: [], base: b, globalMultiplier: 0 },
+    compensation: { dimensions: [], base: b },
+    offboarding: { dimensions: [], base: b },
     base: b, ranked: score !== null,
   };
 }
