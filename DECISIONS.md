@@ -652,6 +652,75 @@ UI reads it yet.
 
 ---
 
+## D-023 · Production was three migrations behind — dependency, not choice, dictated the apply order
+**Status:** Accepted · 2026-08-16 · M5.4 (production verification gate)
+
+Before this milestone, production had never received `0025`
+(hiring_submissions immutability) or `0026` (moderation audit ledger) — both
+were built and locally verified in the M4 session but left unapplied, the
+same "migration application is human-gated" pattern D-015 and prior sessions
+already established. This became load-bearing for M5.4, not just a leftover:
+`0027`'s `verification_tier` guard is written as `CREATE OR REPLACE FUNCTION
+hiring_submissions_guard_immutable()`, relying on `0025`'s trigger already
+existing and pointing at that function name — deliberately no `CREATE
+TRIGGER` in `0027` itself. On a database that never ran `0025`, applying
+`0027` alone would have created the function but left it wired to nothing,
+so `verification_tier` (and every other supposedly-locked column) would have
+been silently mutable in production, contradicting the migration's own stated
+design.
+
+**Decision:** apply `0025` → `0026` → `0027` → `0028` in that order, as one
+dependency chain, not as four independent choices. Verified live (not just by
+reading the migration text): after applying all four, a direct `UPDATE
+verification_tier` on a real production row raised the guard's exception —
+confirmed the dependency now genuinely holds, not merely on paper.
+
+**Why this wasn't caught earlier:** the M4 session's own verification was
+itself structural-parity-only (reading migration text, no live database was
+reachable), explicitly documented as such in
+`tests/db-hiring-submissions-immutability.test.ts`'s header. A structural test
+can prove a migration file is internally consistent; it cannot prove a later
+migration's *cross-migration* assumption about what already ran in the target
+environment. That gap is exactly what this session's live verification (D-024
+below) exists to close.
+
+**Cost:** none beyond the two extra migrations landing later than intended —
+both were already fully written, tested, and reviewed; this was purely a
+sequencing correction, not new design work.
+**Revisit if:** never — this is now production's actual state, not a decision
+to reconsider.
+
+---
+
+## D-024 · Production write-path verification uses a dedicated, clearly-labeled QA organization — never a real company
+**Status:** Accepted · 2026-08-16 · M5.4
+
+Live-verifying an approve/moderate/publish pipeline against production
+necessarily means writing a real row through the real functions. Two options
+existed: reuse an existing real company (as D-010's hiring_events immutability
+proof did, out of necessity, before this pattern was named), or create a
+purpose-built test organization. This session created a new organization
+(`slug = 'm54-qa-verification-test'`, `display_name` prefixed `(QA TEST —
+...)`) specifically so a verification submission never touches a real
+company's evidence, even transiently while approved.
+
+**Why this matters beyond tidiness:** `hiring_submissions` rows cannot be
+hard-deleted (D-010's guard, extended by `0025`) — once an approved test
+report exists on a real company's row set, it is not fully undoable; a reject
+removes it from the public view but the row (and its brief window of public
+visibility) is permanent history. Isolating verification data to its own
+organization means the *organization* is inert test data forever, rather than
+a real company's evidence set carrying a permanent asterisk.
+
+**The cost this doesn't avoid:** the test organization and its one rejected
+submission remain in production forever, exactly like D-010's test rows — this
+decision only changes *what* is permanently there, not *whether* something is.
+**Pattern for future live-verification of immutable write paths:** create a
+dedicated, obviously-labeled test entity first; never reuse real product data
+to prove a database guarantee, even briefly.
+
+---
+
 ## Open questions (decisions *not* yet made)
 
 | # | Question | Blocked on |

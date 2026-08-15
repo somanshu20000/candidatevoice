@@ -1,7 +1,132 @@
 # NOW — CandidateVoice project state
 
-**Current phase:** M5.3 Verification pipeline (submission → moderation → approved evidence) — **COMPLETE**.
+**Current phase:** M5.4 Production verification gate — **COMPLETE**.
 **Last updated:** 2026-08-16.
+
+## Headline (M5.4)
+
+Migrations `0025`–`0028` are now **applied to production** (they were not
+before this milestone — see the discovery below). The full pipeline —
+company resolution → submission → verification tier → moderation → audit
+ledger → approved public evidence — was live-verified against production
+Supabase using a dedicated, clearly-labeled QA organization
+(`m54-qa-verification-test`), never a real company. `VERIFICATION_SECRET`
+is generated but **not yet set** in the Vercel deployment — I have no tool
+that can set a Vercel environment variable, so this is a manual step for a
+human with dashboard access (value + instructions below).
+
+### Discovery: production was 3 milestones behind
+Before this task, production had never received `0025` (hiring_submissions
+immutability, M4.1) or `0026` (moderation audit ledger, M4.2) — both had sat
+locally unapplied since the M4 session. This mattered directly for M5.4:
+`0027`'s guard-function redefinition assumes `0025`'s trigger already exists
+and points at the function by name (`CREATE OR REPLACE FUNCTION`, no new
+`CREATE TRIGGER`). Applying `0027` alone onto a database that never had `0025`
+would have created the function but left NO trigger calling it — meaning
+`verification_tier` (and every other "immutable" column) would have been
+silently mutable in production. All four migrations were applied in order:
+`0025` → `0026` → `0027` → `0028`.
+
+### Migration application
+Blocked by the same permission-classifier restriction noted in the M4
+session; the user explicitly granted permission for this session and all
+four applied successfully via `apply_migration`. Production is now current
+through `0028`. `get_advisors` (security) afterward shows only the standard
+"mutable search_path" advisory on every plpgsql function in this schema —
+a pre-existing pattern across the whole codebase (present on functions that
+predate this session too), not a regression introduced here, and out of
+scope to fix under "production pipeline issues only."
+
+### Live verification (production Supabase, direct SQL — see below for why)
+Pre-flight: 5 total `hiring_submissions` rows, all still `pending` (0
+approved, 0 rejected) — the new triggers only affect future writes, so this
+carried zero risk to existing data.
+
+Verified end to end using a dedicated test organization
+(`organizations.slug = 'm54-qa-verification-test'`, `display_name` prefixed
+`(QA TEST — ...)`), never a real company:
+1. **RPC write** — `submit_hiring_report` (the exact function `/api/submit`
+   calls) accepted `verification_tier: 'contact_domain'` in `p_submission`
+   and wrote it correctly.
+2. **Immutability, live-confirmed** — attempting
+   `UPDATE hiring_submissions SET verification_tier = 'attested'` on the row
+   raised `P0001: hiring_submissions rows are immutable...` — proof `0027`'s
+   dependency on `0025`'s trigger now genuinely holds in production, not just
+   in the migration file.
+3. **Moderation → audit ledger** — flipping `is_approved = true` produced
+   exactly one `moderation_audit_log` row (`action='approve',
+   previous_state='pending', new_state='approved', actor='admin'`) —
+   `0026`'s trigger fired correctly.
+4. **Approved → public evidence** — `select ... from public_submissions`
+   returned the row with `verification_tier = 'contact_domain'` — `0028`'s
+   view redefinition is live and correct.
+5. **Fingerprint/search read path** — not separately exercised with a second
+   live row (a single-evidence-item org is expected to render nothing under
+   the existing effective-N suppression floors — D-002 — so adding more fake
+   rows just to clear a floor would have meant more permanent, undeletable
+   test pollution for no signal). The read path is the same
+   `load.ts`/`normalize.ts` code exercised by 702 passing tests, querying the
+   exact view just confirmed live; connecting it was not a new risk to verify
+   further.
+6. **Cleanup** — the test row was **rejected** (`rejected_at = now()`) to pull
+   it back out of public view; confirmed `public_submissions` no longer
+   returns it (count 0). It could **not** be hard-deleted — `0025`'s
+   immutability guard blocks DELETE unconditionally, with no admin bypass
+   (by design). The test organization and its one rejected submission remain
+   in production permanently, clearly labeled, exactly the same accepted cost
+   already on record in D-010 for the hiring_events immutability proof.
+
+**A second permission-classifier block occurred mid-verification**: flipping
+`is_approved = true` (a real moderation action, distinct from schema DDL) was
+blocked separately from the migration-apply block. The user was asked
+explicitly and chose to grant it for this one clearly-labeled QA row rather
+than have it skipped or done manually.
+
+### VERIFICATION_SECRET — generated, NOT set (needs a human)
+No tool available to me sets a Vercel project's environment variables (the
+connected Vercel MCP exposes project/deployment reads and a from-scratch
+`deploy_to_vercel`, not env-var management), and setting one is an
+account-settings change I should not attempt via a full redeploy workaround.
+A cryptographically random value was generated
+(`crypto.randomBytes(48).toString('base64url')`, 48 bytes / 384 bits) and
+handed to the user directly in chat — **not committed anywhere** — with the
+exact Vercel dashboard steps (Project `candidatevoice` → Settings →
+Environment Variables → add `VERIFICATION_SECRET`, Production scope, then
+redeploy). Until this is set, `/api/verify/grant` and `/api/verify/consume`
+fail closed (500) in production — `/api/submit` is unaffected, since an
+absent `verification_token` simply skips redemption and the submission
+proceeds as `unverified`, exactly as designed (fail-open, D-022/INV-V area).
+
+### Test results
+`npx tsc --noEmit` — clean. `npx vitest run` — **49 files, 702 tests,
+unchanged** (no code changed this milestone — this was a production/infra
+task). `npm run build` — clean, 28 routes.
+
+### What M5.4 did NOT do
+- Did not set `VERIFICATION_SECRET` in Vercel (no tool access — human step).
+- Did not build M5.2b, M6, or any new feature — explicitly out of scope.
+- Did not fix the pre-existing "mutable search_path" advisory across every
+  plpgsql function — pre-existing, schema-wide, out of scope for this task.
+- Did not exercise `/api/verify/grant` → `/api/verify/consume` → `/api/submit`
+  over real HTTP with a real signed token, since that requires
+  `VERIFICATION_SECRET` to be set first. Once it is, that end-to-end HTTP
+  path is the natural next verification step.
+
+### Next milestone
+Set `VERIFICATION_SECRET` in Vercel (human step, instructions above), then
+live-test the actual HTTP grant flow (`POST /api/verify/grant` →
+`POST /api/submit` with `verification_token` → confirm `contact_domain`
+tier lands on a real submission via the real API, not direct SQL). After
+that: M5.2b (emailed domain tier) remains gated on the vendor/log-retention
+decision; independently, a UI surface for the tier ("N of M reports from
+verified company addresses") could be built without it.
+
+---
+
+## Headline (M5.3 — superseded above)
+
+**M5.3 Verification pipeline** wiring — complete (see below), now live in
+production per M5.4.
 
 ## Headline (M5.3)
 
