@@ -1,85 +1,145 @@
 # NOW — CandidateVoice project state
 
-**Current phase:** M3 Search & Discovery — **COMPLETE** (M3.0 → M3.7), verified live against the production bundle.
+**Current phase:** M5.1 Company-Request Moderation & Promotion — **COMPLETE**.
 **Last updated:** 2026-08-14.
 
 ## Headline
 
-A stranger can now visit CandidateVoice, search a real company by name (typo-/
-alias-/domain-tolerant, ranked) OR describe a hiring pattern in natural language,
-and get an understandable, evidence-gated result — with the honest "not enough
-evidence yet" state instead of any fabricated score, and explicit notices when a
-requested filter (location, salary amount) isn't supported. Architecture stayed
-PostgreSQL-only + a deterministic signal lexicon; no pgvector, no LLM in the
-request path, no PixelRAG (D-020, and the D-019 amendment).
+The "add a company" loop is closed. `company_requests` (migration `0022`) and the
+submit flow's "isn't listed" write path already existed, but nothing ever read
+the queue or turned a request into a canonical organization — it was a
+write-only dead end. Admin now has a third moderation tab: **Promote** (create
+exactly one new organization, re-verifying via `resolve_organization` first —
+D-009), **Merge** (link the request to an existing organization, create
+nothing), or **Reject**. A stranger can now genuinely go: search → not found →
+add company → admin reviews → canonical organization → searchable →
+submittable.
 
-## M3 implementation status — all milestones DONE
+## What was implemented
 
-| Milestone | What shipped |
+| Piece | File |
 |---|---|
-| M3.0 Search contract + lexicon | `src/lib/search/types.ts`, `lexicon.ts` (~70 phrases / 13 dims) |
-| M3.1 Ranked entity search | `searchCompanies` layers ranked RPC + `.ilike` substring (regression-safe) |
-| M3.2 Alias backfill | `alias-derivation.ts` (pure) + `scripts/backfill-organization-aliases.ts` (dry-run) |
-| M3.3 Query parser | `parse.ts` + `unsupported.ts` — intent, signals, unsupported capabilities |
-| M3.4 Signal retrieval + gating | `signal.ts` — gate → order → band over the existing engine |
-| M3.5 Explainable assembly | `explain.ts` (templated, integer-provenance-safe) + `retrieve.ts` orchestrator |
-| M3.6 Search UI | `src/app/companies/page.tsx` — entity cards, banded signal results, capability notices |
-| M3.7 Production audit | full gate + live `npm start` walk (below) |
+| Queue read + promote/merge/reject logic | `src/lib/company-intelligence/requests.ts` (new) |
+| Admin API | `src/app/api/admin/company-requests/{list-pending,promote,merge,reject}/route.ts` (new — 4 routes; the plan's list named 3, `merge` was added because §7 of the M5 plan explicitly requires it and the admin UI needs a merge action) |
+| Admin UI | `src/app/admin/page.tsx` — third `"companies"` tab, mirroring the existing `"hiring"`/`"external"` tab pattern exactly (same auth flow, same load-on-select, same error/message banners) |
 
-## Files changed (this M3 session)
+## D-009 enforcement (never silently create a duplicate)
+
+`promoteCompanyRequest` re-resolves **immediately before creating**, via the
+same `resolve_organization()` RPC `store.ts`/`submit_hiring_report` already
+trust — not a fresh algorithm. Two independent guards:
+1. **Slug re-resolve.** If the candidate slug already resolves to an
+   organization (exact/alias/canonicalized match), promotion refuses and
+   returns the existing `organizationId` so the admin can merge instead.
+2. **Domain collision.** If `requested_domain` already belongs to an
+   organization via `company_links.normalized_domain`, promotion refuses the
+   same way — catches a differently-named request for a company that already
+   exists under a different display name.
+
+Every mutation (`promote`/`merge`/`reject`) re-checks `status = 'pending'` in
+the same UPDATE and requires the update to actually match a row — the guard
+against two admins (or a promote racing a reject) acting on the same request
+twice. `organizations` creation itself uses the same `upsert(...,
+{onConflict:"slug", ignoreDuplicates:true})` + re-select pattern `store.ts`'s
+`createOrganization` already uses, so a genuine race on the same slug
+converges rather than erroring.
+
+## Files changed
 
 **New:**
-- `src/lib/search/types.ts`, `lexicon.ts` (M3.0 — prior session, unchanged)
-- `src/lib/search/unsupported.ts` — location + salary-amount capability detection
-- `src/lib/search/parse.ts` — deterministic query parser (longest-phrase-first, plural-tolerant)
-- `src/lib/search/signal.ts` — pure gate→order→band ranker
-- `src/lib/search/explain.ts` — SearchResult + templated explanation
-- `src/lib/search/retrieve.ts` — `runSearch` orchestrator (parse → entity/signal → explain)
-- `src/lib/company-intelligence/alias-derivation.ts` — pure alias derivation + collision-safe plan
-- `scripts/backfill-organization-aliases.ts` — dry-run-by-default backfill
-- `tests/search-parse.test.ts` (17), `search-signal.test.ts` (10), `search-explain.test.ts` (10), `search-alias-derivation.test.ts` (14)
+- `src/lib/company-intelligence/requests.ts`
+- `src/app/api/admin/company-requests/list-pending/route.ts`
+- `src/app/api/admin/company-requests/promote/route.ts`
+- `src/app/api/admin/company-requests/merge/route.ts`
+- `src/app/api/admin/company-requests/reject/route.ts`
+- `tests/company-requests.test.ts` (14 tests)
 
 **Modified:**
-- `src/lib/search/types.ts` — added `SearchDimensionScoreView`, `populationCalibrated`
-- `src/lib/evidence/analytics.ts` — `CompanyAnalytics` additively carries `compensation` + `offboarding` profiles (same pure builders, one load; D-001-safe)
-- `src/app/companies/page.tsx` — rewritten as the search surface (directory listing preserved for no-query)
-- `tests/evidence-rank.test.ts` — fixture updated for the two new additive fields
-- `DECISIONS.md` — D-020 (Postgres + lexicon; why not pgvector/LLM) + D-019 amendment (retriever ≠ extractor; permission is the bottleneck)
-- (M3.1, prior session) `src/lib/company-intelligence/directory.ts`, `tests/search-entity.test.ts`
+- `src/app/admin/page.tsx` — `Tab` type widened to include `"companies"`;
+  `CompanyRequestItem` type; `companyRequests`/`mergeTargets` state;
+  `loadTab` extended for the third URL; `promoteRequest`/`rejectRequest`/
+  `mergeRequest` handlers; third tab button + render block.
 
-**Untouched collaborator work** (left exactly as found, NOT in the M3 commit):
-`scripts/_shared.ts`, `scripts/fetch-company-metadata.ts`, `scripts/import-external.ts`,
-`src/lib/company-intelligence/store.ts`, `src/lib/company-intelligence/adapters/website-meta.ts`,
-`src/lib/hiring-intel/*`, `package.json`/`package-lock.json`, and the untracked
-`.bak`/`demo-seed.ts`/`system_1.png`/`supabase-debug.txt`/`0019_*` files.
+**Untouched collaborator work** (left exactly as found): `scripts/_shared.ts`,
+`scripts/fetch-company-metadata.ts`, `scripts/import-external.ts`,
+`src/lib/company-intelligence/store.ts`, `.../adapters/website-meta.ts`,
+`src/lib/hiring-intel/*`, `package.json`/`package-lock.json`, and the
+untracked `.bak`/`demo-seed.ts`/`system_1.png`/`supabase-debug.txt`/`0019_*`/
+`Logo/`/`Data_Deepseek_layer/` files.
 
 ## Verification
 
 - `npx tsc --noEmit` — clean.
-- `npx vitest run` — **41 files, 611 tests, all pass** (M3 added 51 tests over the prior 560).
-- `npm run build` — clean production build, 22 routes.
-- **Live audit, production bundle (`npm start`, "Ready in <1s" — not dev):**
-  - Entity: `?q=Razorpay` → 1 exact match; `?q=Razorpy` (typo) → still finds Razorpay; `?q=tech` → 10 substring matches incl. Kodehash Tech (regression guard holds); `/api/company-search?q=razorpay` → exact_slug score 1 (submit-flow search intact).
-  - Mixed: `?q=Razorpay ghosting` → Razorpay card + "You also mentioned Ghosting" hint.
-  - Signal: `?q=companies that ghost after technical rounds` → honest "No company has enough evidence yet to answer 'Ghosting'" (no fabricated score).
-  - Unsupported: `?q=companies in Gurgaon with slow responses` → explicit "can't yet filter by office location" notice **and** the Response Speed signal, insufficient state.
-  - Regression: `/company/razorpay` renders metadata + similar companies + honest "no reports yet" + provenance; `/analytics` renders honest empty state (extended loader, no regression).
-  - Only console errors are the known preview-tool `main-app.js?v=<ts>` EvalError instrumentation, not CandidateVoice code.
+- `npx vitest run` — **44 files, 650 tests, all pass** (M5.1 added 14 over M4's 636).
+- `npm run build` — clean, 26 routes (4 new: the company-requests API routes).
+- **Testing approach — why a fake Supabase client, not a live DB.** `requests.ts`
+  talks to Supabase directly (no `CompanyStore` abstraction like `importer.ts`
+  has), and this codebase's established convention (confirmed across M3/M4:
+  `company-resolve.test.ts`, `db-hiring-submissions-immutability.test.ts`) is
+  unit-test pure logic, live-verify I/O — never mock Supabase. Since local
+  Docker Supabase is unavailable in this environment and the task explicitly
+  forbade creating/promoting/merging/rejecting anything in **production**
+  `company_requests`, I built the smallest in-memory fake that reproduces the
+  exact query shapes `requests.ts` issues (including a realistic
+  `resolve_organization` RPC that reads the fake `organizations` table, so a
+  company created by one `promote()` call is genuinely visible to the next
+  call's D-009 re-resolve). This is new infrastructure for this codebase, not
+  a general Supabase mock — scoped to exactly one module. The 14 tests cover:
+  pending-queue filtering, exactly-one-org creation, invalid-slug rejection,
+  unknown/already-resolved request handling, **slug-collision refusal**,
+  **domain-collision refusal**, **the real two-requests-for-one-company race
+  (still exactly one org after both)**, **concurrent-action guard** (a
+  reject landing before a promote), merge creating zero organizations, merge
+  into a nonexistent org refused, and reject's status/timestamp/no-org-touched
+  invariants.
+- **Live browser verification (`npm start`, not `npm run dev`):**
+  - `GET /api/admin/company-requests/list-pending` with no `Authorization`
+    header → `401 {"error":"Missing authorization header."}`.
+  - `POST` to `promote`/`merge`/`reject` with a wrong bearer token → all three
+    `401 {"error":"Unauthorized."}`, confirmed via `fetch()` from the page
+    (no data touched — auth is checked before any `requests.ts` call).
+  - `/admin` renders the third **Companies** tab alongside Hiring/External;
+    clicking it switches `tab` state correctly and — because `isReady` is
+    false with no secret entered — fires **no** fetch at all, matching the
+    existing hiring/external tabs' exact behavior.
+- **What was NOT live-exercised, and why:** the actual promote/merge/reject
+  write paths were not run against a real database (production or otherwise)
+  in this session. Doing so against production would mean either acting on a
+  genuine pending request (explicitly forbidden) or inserting a throwaway
+  test request + promoting it into a real `organizations` row (which,
+  unlike `hiring_submissions`, has no immutability trigger and so *could* be
+  cleaned up afterward — but the task's "do not modify production data
+  without explicit authorization" was read as covering this too, so it was
+  not attempted). The 14 fake-client tests are the substitute evidence; they
+  exercise the literal shipped code, not a refactored-out subset.
+
+## Production data touched
+
+**NO.** No `company_requests`, `organizations`, or any other production row
+was read (beyond what the earlier session's audits already covered),
+created, updated, or deleted this session.
 
 ## Known limitations (honest)
 
-- **No approved evidence in production** → every signal query correctly returns the insufficient state today. The machinery is verified against the empty case; the well_evidenced/limited bands are unit-tested but not yet live-exercised (needs approved submissions). This is a data state, not a code gap.
-- **Alias recall is still low** (`organization_aliases` ≈ 2 rows). M3.2's script is written and dry-run-verified (262 collision-safe candidates) but NOT applied — the domain-stem source carries noise from mis-stored `company_links` rows (e.g. `credit-agricole`→CRED), so applying it needs a human review pass first.
-- **Location search unsupported** (`company_locations` = 0 rows) — surfaced honestly, deferred until that table is populated.
-- Signal `signalStrength` is population-calibrated only above 5 rendered companies; below that it's raw-directional and labelled provisional.
-
-## Not committed / not pushed yet
-
-Awaiting the one M3 commit (M3 files only). No push planned unless requested.
+- Merge requires the admin to already know the target `organizationId` (a
+  plain text input, no search widget). Finding it today means using the
+  existing company search/`/api/company-search` separately and pasting the
+  id in. A proper inline search-and-pick UI is a natural follow-up, not built
+  here to keep this milestone's diff reviewable.
+- The domain-collision guard only fires when the request itself carries
+  `requested_domain` — requests filed without a domain (the field is
+  optional in the submit UI) only get the slug-based D-009 check.
+- No email/notification path exists when a request is promoted or rejected —
+  the requester is anonymous by design (D-007-adjacent: no identity is
+  stored with a `company_requests` row either), so there is no one to notify.
 
 ## Next milestone
 
-Track B — Truth Layer + legitimate evidence acquisition (see the plan):
-1. **B.1 First-party provenance parity** — `hiring_submissions` has no immutability trigger and no moderation audit table (migration `0001` is *named* `rate_limit_and_moderation_audit` but contains only `rate_limit_counters`). Largest genuine gap.
-2. **B.4 Legitimate acquisition (Q-2)** — `external_reports = 0` because no permitted source flows yet. This is a sourcing/permissions problem, not engineering; it's the real blocker to a non-empty product.
-3. The moderation gate (approve/reject the 2 genuine pending submissions, clear 3 test rows) remains a human decision.
+**M5.2 — Verification envelope (optional, pre-submit).** Per the M5
+architecture plan: a submitter may optionally prove inbox or work-domain
+control (HMAC signed short-lived link, reusing the exact pattern already
+specified in `docs/design-hr-authentication.md` §1), yielding a grant that
+stamps a `verification_tier` enum on the submission — never an email, domain,
+document, or token. New migration `0027_submission_verification.sql`. Verification changes **display only, never weight** (see the M5 plan's §6 reasoning: weighting verified evidence higher punishes the anonymous majority and creates a de-anonymization incentive). Requires a new
+FK-disjointness test mirroring `tests/account-evidence-disjointness.test.ts`
+to prove no verification artifact ever touches an evidence row (INV-V).

@@ -523,6 +523,54 @@ from mis-stored `company_links` rows.
 
 ---
 
+## D-021 · Company-request promotion extends D-009's re-verify to the admin side, plus a domain check
+**Status:** Accepted · 2026-08-14 · M5.1 (`src/lib/company-intelligence/requests.ts`)
+
+D-009 established "never silently choose or create" for the *submit-flow*
+confirmation UI: the ranked list is advisory, the server re-verifies before
+trusting a client-supplied `organization_id`. `company_requests` (migration
+`0022`) sat on the other side of that boundary with no code path at all — a
+queued request could never become a canonical organization, so the gap
+D-009 was designed against didn't yet have anywhere to reopen. Building that
+path (M5.1) meant deciding how promotion re-verifies, since a request may sit
+in the queue for weeks before an admin reviews it — long enough for the
+directory to have moved on.
+
+**Decision:** `promoteCompanyRequest` re-resolves the candidate slug via the
+same `resolve_organization()` RPC `store.ts` and `submit_hiring_report`
+already trust, **immediately before** creating — not at request-filing time.
+If it now resolves to an existing organization, promotion refuses and
+returns that id so the admin can merge instead. **A second, independent
+check** was added beyond the original submit-flow pattern: if the request
+carries a `requested_domain`, it's checked against
+`company_links.normalized_domain` too — a differently-named request for an
+employer that already exists ("Google" filed against an org already present
+as "Alphabet Inc.") would pass a slug-only check but is still a duplicate.
+
+**Why the domain check is best-effort, not authoritative:** a `company_links`
+query failure returns `null` (no match) rather than blocking promotion — the
+slug re-resolve is the load-bearing guard; domain is a bonus catch, not a
+second point of failure for an otherwise-legitimate promotion.
+
+**Merge creates nothing, by construction:** `mergeCompanyRequest` never calls
+`organizations.insert`/`upsert` — it only writes `resolved_organization_id`
+onto the request after confirming the target id exists
+(`organizationExists`, already used by the submit flow). The distinction from
+promote is structural, not just a status string.
+
+**Race guard:** every mutation (`promote`/`merge`/`reject`) conditions its
+`UPDATE` on `status = 'pending'` and requires the update to actually match a
+row (`.select().maybeSingle()` returning non-null) — two admins (or a stale
+tab) acting on the same request twice is caught rather than silently
+double-applied.
+
+**Cost:** merge requires the admin to already have the target
+`organizationId` (a plain text field, no inline search-and-pick). Acceptable
+for M5.1's scope; a follow-up can wire the existing ranked search into that
+field without changing the underlying `requests.ts` contract.
+
+---
+
 ## Open questions (decisions *not* yet made)
 
 | # | Question | Blocked on |

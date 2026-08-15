@@ -57,7 +57,18 @@ interface ExternalQueueItem {
   related: RelatedReportRef[];
 }
 
-type Tab = "hiring" | "external";
+interface CompanyRequestItem {
+  id: string;
+  requestedName: string;
+  requestedDomain: string | null;
+  requesterNote: string | null;
+  status: "pending" | "approved" | "rejected" | "merged";
+  resolvedOrganizationId: string | null;
+  createdAt: string;
+  reviewedAt: string | null;
+}
+
+type Tab = "hiring" | "external" | "companies";
 
 const STATUS_DOT: Record<RelatedReportRef["status"], string> = {
   pending: "bg-[#C9A227]",
@@ -89,7 +100,9 @@ export default function AdminPage() {
   const [tab, setTab] = useState<Tab>("hiring");
   const [pending, setPending] = useState<PendingSubmission[]>([]);
   const [externalPending, setExternalPending] = useState<ExternalQueueItem[]>([]);
-  const [loaded, setLoaded] = useState<Record<Tab, boolean>>({ hiring: false, external: false });
+  const [companyRequests, setCompanyRequests] = useState<CompanyRequestItem[]>([]);
+  const [mergeTargets, setMergeTargets] = useState<Record<string, string>>({});
+  const [loaded, setLoaded] = useState<Record<Tab, boolean>>({ hiring: false, external: false, companies: false });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -146,10 +159,15 @@ export default function AdminPage() {
     setError(null);
     setMessage(null);
 
-    const url = which === "hiring" ? "/api/admin/list-pending" : "/api/admin/external/list-pending";
+    const url =
+      which === "hiring"
+        ? "/api/admin/list-pending"
+        : which === "external"
+          ? "/api/admin/external/list-pending"
+          : "/api/admin/company-requests/list-pending";
     const response = await fetch(url, { headers: { Authorization: `Bearer ${secret.trim()}` } });
     const body = (await response.json().catch(() => null)) as
-      | { data?: PendingSubmission[] | ExternalQueueItem[]; error?: string }
+      | { data?: PendingSubmission[] | ExternalQueueItem[] | CompanyRequestItem[]; error?: string }
       | null;
 
     if (!response.ok) {
@@ -159,7 +177,8 @@ export default function AdminPage() {
     }
 
     if (which === "hiring") setPending((body?.data ?? []) as PendingSubmission[]);
-    else setExternalPending((body?.data ?? []) as ExternalQueueItem[]);
+    else if (which === "external") setExternalPending((body?.data ?? []) as ExternalQueueItem[]);
+    else setCompanyRequests((body?.data ?? []) as CompanyRequestItem[]);
     setLoaded((prev) => ({ ...prev, [which]: true }));
     setLoading(false);
   }
@@ -211,6 +230,68 @@ export default function AdminPage() {
       action === "approve" ? "Report approved — now part of weighted evidence." : action === "reject" ? "Report rejected." : "Report archived."
     );
     await loadTab("external");
+  }
+
+  async function promoteRequest(id: string) {
+    setError(null);
+    setMessage(null);
+    const response = await fetch("/api/admin/company-requests/promote", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${secret.trim()}` },
+      body: JSON.stringify({ id }),
+    });
+    const body = (await response.json().catch(() => null)) as
+      | { error?: string; existingOrganizationId?: string; slug?: string }
+      | null;
+    if (!response.ok) {
+      setError(
+        body?.existingOrganizationId
+          ? `${body?.error} (existing organization id: ${body.existingOrganizationId})`
+          : body?.error ?? "Promotion failed."
+      );
+      return;
+    }
+    setMessage(`Promoted — new company "${body?.slug}" is now searchable.`);
+    await loadTab("companies");
+  }
+
+  async function rejectRequest(id: string) {
+    setError(null);
+    setMessage(null);
+    const response = await fetch("/api/admin/company-requests/reject", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${secret.trim()}` },
+      body: JSON.stringify({ id }),
+    });
+    const body = (await response.json().catch(() => null)) as { error?: string } | null;
+    if (!response.ok) {
+      setError(body?.error ?? "Rejection failed.");
+      return;
+    }
+    setMessage("Company request rejected.");
+    await loadTab("companies");
+  }
+
+  async function mergeRequest(id: string) {
+    const organizationId = (mergeTargets[id] ?? "").trim();
+    if (!organizationId) {
+      setError("Enter the existing organization id to merge into.");
+      return;
+    }
+    setError(null);
+    setMessage(null);
+    const response = await fetch("/api/admin/company-requests/merge", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${secret.trim()}` },
+      body: JSON.stringify({ id, organizationId }),
+    });
+    const body = (await response.json().catch(() => null)) as { error?: string } | null;
+    if (!response.ok) {
+      setError(body?.error ?? "Merge failed.");
+      return;
+    }
+    setMessage("Request merged into the existing organization — no new company was created.");
+    await loadTab("companies");
   }
 
   return (
@@ -295,6 +376,7 @@ export default function AdminPage() {
           [
             ["hiring", "Hiring Reports", pending.length],
             ["external", "External Reports", externalPending.length],
+            ["companies", "Companies", companyRequests.length],
           ] as const
         ).map(([value, label, count]) => (
           <button
@@ -533,6 +615,72 @@ export default function AdminPage() {
                     >
                       Archive
                     </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {tab === "companies" && (
+        <>
+          {!loading && loaded.companies && companyRequests.length === 0 && (
+            <div className="border border-dashed border-rule-strong bg-paper-sheet rounded-sm p-12 text-center">
+              <p className="text-sm text-ink-muted">No pending company requests.</p>
+            </div>
+          )}
+          {companyRequests.length > 0 && (
+            <div className="space-y-4">
+              {companyRequests.map((item) => (
+                <div key={item.id} className="border border-rule bg-paper-sheet rounded-sm p-5 shadow-sheet">
+                  <div className="flex items-start justify-between gap-3 mb-4 pb-3 border-b border-rule">
+                    <div>
+                      <h2 className="font-serif text-xl text-ink capitalize">{item.requestedName}</h2>
+                      {item.requestedDomain && (
+                        <p className="text-xs text-ink-muted mt-0.5">{item.requestedDomain}</p>
+                      )}
+                    </div>
+                    <span className="text-[11px] font-mono text-ink-faint shrink-0 tnum">
+                      {new Date(item.createdAt).toLocaleString()}
+                    </span>
+                  </div>
+
+                  {item.requesterNote && (
+                    <p className="text-sm text-ink-soft mb-4 border-l-2 border-rule pl-3">{item.requesterNote}</p>
+                  )}
+
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => promoteRequest(item.id)}
+                      className="bg-accent text-paper-sheet text-sm font-medium px-4 py-2 rounded-sm hover:bg-accent-hover transition-colors"
+                    >
+                      Promote (new company)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => rejectRequest(item.id)}
+                      className="border border-rule-strong bg-paper-sheet text-ink-soft text-sm px-4 py-2 rounded-sm hover:border-bad hover:text-bad transition-colors"
+                    >
+                      Reject
+                    </button>
+                    <div className="flex items-center gap-2 ml-auto">
+                      <input
+                        type="text"
+                        value={mergeTargets[item.id] ?? ""}
+                        onChange={(e) => setMergeTargets((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                        placeholder="Existing organization id…"
+                        className="w-56 bg-paper border border-rule text-ink text-xs rounded-sm px-2.5 py-2 shadow-press focus:outline-none focus:border-accent transition-colors placeholder:text-ink-faint"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => mergeRequest(item.id)}
+                        className="border border-rule-strong bg-paper-sheet text-ink-faint text-sm px-4 py-2 rounded-sm hover:border-ink-muted hover:text-ink-muted transition-colors whitespace-nowrap"
+                      >
+                        Merge
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
