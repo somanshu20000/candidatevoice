@@ -49,6 +49,9 @@ export interface RawFirstPartyRow {
   would_recommend: string | null;
   tenure_bucket: string | null;
   conduct_environment: string | null;
+  /** Verification provenance (migrations 0027/0028). Coarse enum; defaults to
+   *  'unverified' at the DB. Never a weight input (D-022). */
+  verification_tier: string | null;
 }
 
 export interface RawExternalRow {
@@ -71,7 +74,8 @@ const FIRST_PARTY_SELECT =
   "id, organization_id, reporter_type, experience_bucket, stage, outcome, response_time_bucket, " +
   "last_interaction_gap, call_duration, first_interaction_outcome, reason, payment_flag, reported_month, " +
   "application_channel, salary_history_stage, salary_proof_type, salary_proof_stage, salary_range_disclosed, " +
-  "exit_experience_letter, exit_settlement, exit_documentation, would_recommend, tenure_bucket, conduct_environment";
+  "exit_experience_letter, exit_settlement, exit_documentation, would_recommend, tenure_bucket, conduct_environment, " +
+  "verification_tier";
 
 const EXTERNAL_SELECT =
   "id, organization_id, source_key, trust_weight, experience_bucket, stage, outcome, " +

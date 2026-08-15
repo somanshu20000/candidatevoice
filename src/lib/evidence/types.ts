@@ -37,6 +37,7 @@ import type {
   WouldRecommend,
   TenureBucket,
   ConductEnvironment,
+  VerificationTier,
 } from "@/types/index";
 
 export type EvidenceFamily = "first_party" | "external";
@@ -111,6 +112,18 @@ export interface EvidenceItem {
 
   /** External only; null for first-party (which has no extraction step). */
   extractionConfidence: number | null;
+
+  /**
+   * Verification provenance (migrations 0027/0028). Coarse metadata about how
+   * this report's origin was verified — NEVER a weight input (D-022): `weight`
+   * above is computed with no reference to this field, and no metric may read
+   * it to change a score. External evidence is always 'unverified' (a forum
+   * post carries no grant). Present so a future aggregate-composition surface
+   * ("N of M reports from verified company addresses") can read it WITHOUT a
+   * second query — but that display is deliberately not built here (M5.3 wires
+   * the pipeline; it renders nothing).
+   */
+  verificationTier: VerificationTier;
 }
 
 /**

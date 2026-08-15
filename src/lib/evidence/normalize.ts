@@ -24,6 +24,7 @@ import type {
   WouldRecommend,
   TenureBucket,
   ConductEnvironment,
+  VerificationTier,
 } from "@/types/index";
 import type { EvidenceItem } from "./types";
 import type { RawFirstPartyRow, RawExternalRow } from "./load";
@@ -53,6 +54,10 @@ const EXIT_DOCUMENTATIONS: readonly string[] = ["complete", "partial", "none", "
 const WOULD_RECOMMENDS: readonly string[] = ["yes", "maybe", "no"];
 const TENURE_BUCKETS: readonly string[] = ["0-1", "1-3", "3-5", "5-8", "8+"];
 const CONDUCT_ENVIRONMENTS: readonly string[] = ["respectful", "mostly_ok", "some_concerns", "serious_concerns", "na"];
+// Verification provenance (migrations 0027/0028). A coarse enum, never a weight
+// (D-022). An unrecognized or null value falls back to 'unverified' below —
+// the safe default, matching how the column defaults at the DB.
+const VERIFICATION_TIERS: readonly string[] = ["unverified", "inbox_verified", "contact_domain", "attested"];
 
 /**
  * Narrow a raw string to its enum type, or null. The DB's own CHECK
@@ -112,6 +117,9 @@ export function normalizeFirstParty(rows: RawFirstPartyRow[]): EvidenceItem[] {
       tenureBucket: asEnum<TenureBucket>(r.tenure_bucket, TENURE_BUCKETS),
       conductEnvironment: asEnum<ConductEnvironment>(r.conduct_environment, CONDUCT_ENVIRONMENTS),
       extractionConfidence: null, // first-party has no extraction step
+      // Coarse provenance metadata, not a weight (D-022). `weight` above was
+      // computed with no reference to this field and never will be.
+      verificationTier: asEnum<VerificationTier>(r.verification_tier, VERIFICATION_TIERS) ?? "unverified",
     }));
 }
 
@@ -169,6 +177,9 @@ export function normalizeExternal(rows: RawExternalRow[], globalMultiplier: numb
         tenureBucket: null,
         conductEnvironment: null,
         extractionConfidence,
+        // A third-party forum post carries no verification grant — external
+        // evidence is always 'unverified' (W1 asymmetry, same as the fields above).
+        verificationTier: "unverified" as VerificationTier,
       };
     });
 }

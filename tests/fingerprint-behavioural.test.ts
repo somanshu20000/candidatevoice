@@ -57,6 +57,7 @@ function evidenceItem(fields: Partial<EvidenceItem> & Pick<EvidenceItem, "id" | 
     wouldRecommend: null,
     tenureBucket: null,
     conductEnvironment: null,
+    verificationTier: "unverified",
     extractionConfidence: null,
     ...fields,
   };

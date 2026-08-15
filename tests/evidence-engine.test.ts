@@ -53,6 +53,7 @@ function evidenceItem(fields: Partial<EvidenceItem> & Pick<EvidenceItem, "id" | 
     wouldRecommend: null,
     tenureBucket: null,
     conductEnvironment: null,
+    verificationTier: "unverified",
     extractionConfidence: null,
     ...fields,
   };
@@ -83,6 +84,7 @@ function rawFirstPartyRow(fields: Partial<RawFirstPartyRow> & Pick<RawFirstParty
     would_recommend: null,
     tenure_bucket: null,
     conduct_environment: null,
+    verification_tier: null,
     ...fields,
   };
 }

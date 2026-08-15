@@ -571,6 +571,87 @@ field without changing the underlying `requests.ts` contract.
 
 ---
 
+## D-022 · Verification tier is an envelope, never a weight — and the envelope stores nothing identity-shaped
+**Status:** Accepted · 2026-08-15 · M5.2a (`src/lib/verification/*`, migration `0027`)
+
+`hiring_submissions` gained one column, `verification_tier`. Two decisions
+about it are durable enough to record rather than leave implicit in code:
+
+**1. Tier is metadata about provenance, never a multiplier on trust.**
+`firstPartyWeight()` takes no parameters and cannot be made to; a regression
+test (`tests/verification-weight-neutrality.test.ts`) pins this down so a
+future change can't quietly thread a tier into it. Three reasons this is a
+hard rule, not a placeholder: (a) it would punish the anonymous majority,
+whose safety depends on *not* verifying; (b) a higher-weighted report is a
+more attractive de-anonymization target, so weighting-by-tier creates the
+exact incentive the anonymity model exists to remove; (c) only a *current*
+employee can ever domain-verify (a former employee's inbox is revoked) — so
+weighting by tier would systematically overweight the cohort with the
+strongest incentive to make their employer look good and the cohort an
+employer can most easily pressure. It would not be neutral; it would be
+backwards.
+
+**2. INV-V: no verification artifact is ever a linkage key.**
+`verification_grants` stores exactly `sha256(nonce)` + `expires_at` — no
+organization, no tier, no address, no `consumed_at` (a timestamp on a
+since-deleted row would itself be a timing-correlation vector), no
+`created_at`. The organization/tier binding lives only inside the signed
+grant token the caller holds; the database side can never answer "who
+verified, for which company." `tests/account-evidence-disjointness.test.ts`
+now enforces this structurally for `verification_grants`, mirroring the
+existing account/candidate disjointness blocks (D-007).
+
+**Consumption is atomic via one SQL statement, not an explicit transaction:**
+`DELETE FROM verification_grants WHERE grant_hash=$1 AND expires_at > now()
+RETURNING ...` — Postgres's own row locking means two concurrent callers
+racing the same nonce can never both succeed. This is the same "prefer a
+single atomic operation over a lock" idiom M5.1's `promoteCompanyRequest`
+already used for a different race.
+
+**A tier can never be revoked once stamped.** `0027` extends the M4
+immutability guard (`0025`'s `hiring_submissions_guard_immutable()`, via
+`CREATE OR REPLACE FUNCTION` on the same name the existing trigger already
+points at) to lock `verification_tier` too — it is content, not moderation
+state, and must be immutable exactly like every other reported fact on the
+row. "User withdraws verification" has no implementation and is not planned;
+the tier records a fact about the moment of submission.
+
+**Why M5.2a and not the full email-verification design:** the original M5
+plan proposed HMAC email/domain proof as one piece. Splitting it (see the
+M5.2 architecture plan) exposed that domain verification only ever proves
+control of an inbox for a *current* employee — not a candidate, not a former
+employee — and that no email infrastructure exists in this codebase at all
+(no vendor, no send code, no credentials). Building the envelope now and
+gating the emailed tier on a separate vendor/legal decision (log-retention
+terms, since any mail vendor's own delivery logs would hold a recipient
+address at a company domain regardless of what CandidateVoice itself stores)
+avoided taking on that failure domain before it was decided.
+
+**Cost:** the mechanism is currently inert — nothing calls `/api/verify/grant`
+from product UI, and `/api/submit` does not yet consult a redeemed grant when
+stamping a real row. This is intentional scope discipline, not an oversight;
+see `.context/NOW.md`'s M5.2a section for what's explicitly deferred.
+**Revisit if:** a vendor/log-retention decision is made for the emailed
+`contact_domain` tier (unblocks M5.2b), or a decision is made to wire a
+redeemed grant into `/api/submit` (independent of M5.2b, no vendor needed).
+
+**Amendment (2026-08-16, M5.3):** the second revisit-trigger fired — the grant
+is now wired through the pipeline. `/api/submit` optionally redeems a
+`verification_token` (bound to the re-verified organization, D-009), the
+`submit_hiring_report` RPC (migration 0028) writes `verification_tier`, and the
+`public_submissions` view + `load.ts`/`normalize.ts` carry it onto
+`EvidenceItem.verificationTier`. **Both durable decisions above hold unchanged:**
+the tier is written and read but never weighted (`normalizeFirstParty` computes
+`weight` with no reference to it; a test asserts two rows differing only in tier
+weigh the same), and `verification_grants` is untouched by this work so INV-V is
+intact. Redemption is **fail-open** — an absent/invalid/expired/replayed/
+mismatched grant leaves `'unverified'` and never blocks the submission;
+verification is additive, never a gate (matching §17-B of the M5.2 plan). Still
+NOT closed by this: the tier is caller-asserted (no email proof — M5.2b), and no
+UI reads it yet.
+
+---
+
 ## Open questions (decisions *not* yet made)
 
 | # | Question | Blocked on |

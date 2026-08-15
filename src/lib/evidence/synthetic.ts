@@ -48,5 +48,9 @@ export function minimalEvidenceItem(
     tenureBucket: null,
     conductEnvironment: null,
     extractionConfidence: null,
+    // These synthetic items model opportunities/ratings/emotions, not a
+    // submission's provenance — 'unverified' is the only honest value, and it
+    // is never a weight anyway (D-022).
+    verificationTier: "unverified",
   };
 }

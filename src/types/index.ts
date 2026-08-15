@@ -15,6 +15,16 @@ export type FirstInteractionOutcome = "continued" | "rejected_immediately" | "na
 export type ApplicationChannel = "referral" | "recruiter_outreach" | "job_board" | "company_website" | "other";
 
 /**
+ * Verification provenance of a report (migrations 0027/0028). Metadata about
+ * how the report's ORIGIN was verified — never a statement about its truth,
+ * and never a trust multiplier: the Evidence Engine ignores it entirely when
+ * weighting (D-022). `unverified` is the default and the only reachable value
+ * today; the other three exist so a later migration never has to widen the
+ * CHECK. Canonical home for the type — src/lib/verification/token.ts re-exports it.
+ */
+export type VerificationTier = "unverified" | "inbox_verified" | "contact_domain" | "attested";
+
+/**
  * Compensation transparency & privacy practices (migration 0018). All
  * first-party only, all optional, and all CANDIDATE-KNOWABLE: each records
  * something the candidate directly experienced during hiring, not something
@@ -141,6 +151,11 @@ export interface HiringSubmission {
   would_recommend?: WouldRecommend | null;
   tenure_bucket?: TenureBucket | null;
   conduct_environment?: ConductEnvironment | null;
+  /** Verification provenance (migration 0027/0028). Metadata about how this
+   *  report's origin was verified — NEVER a trust multiplier (D-022): the
+   *  Evidence Engine ignores it when weighting. Defaults to 'unverified';
+   *  immutable once stamped (0027's guard). See src/lib/verification. */
+  verification_tier?: VerificationTier | null;
 }
 
 export type Database = {

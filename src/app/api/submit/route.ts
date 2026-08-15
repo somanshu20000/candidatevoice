@@ -17,6 +17,7 @@ import { FACET_KEYS, EMOTION_KEYS, type FacetKey, type EmotionKey } from "@/lib/
 import type { ApplicationChannel, ReporterType } from "@/types/index";
 import { findOrCreateOpportunity, recordHiringEvents } from "@/lib/hiring-intent/match";
 import { buildCandidateEvents } from "@/lib/hiring-intent/events";
+import { redeemGrant } from "@/lib/verification/redeem";
 
 const MAX_SUBMISSIONS_PER_HOUR = 5;
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
@@ -224,6 +225,11 @@ export async function POST(req: NextRequest) {
        *  stage/outcome/last_interaction_gap already collected above. */
       perceived_seriousness?: unknown;
       intent_reasons?: unknown;
+      /** Optional verification grant token (M5.2a/M5.3). If present and it
+       *  redeems against the CONFIRMED organization, it stamps a coarse
+       *  verification_tier on the row. Absent/invalid/mismatched ⇒ 'unverified'
+       *  and the submission proceeds regardless — verification never gates. */
+      verification_token?: unknown;
     };
 
     // Reporter relationship (migration 0020) — absent defaults to 'candidate',
@@ -321,6 +327,10 @@ export async function POST(req: NextRequest) {
       // payment_risk dimension also independently gates on reporter_type, so
       // this value is never read for a non-candidate row either way.
       payment_flag: isCandidate ? Boolean(body.payment_flag) : false,
+      // Verification provenance (M5.3). Starts unverified; upgraded below ONLY
+      // by a grant that redeems against the re-verified organization. Never a
+      // weight (D-022), never blocks a submission.
+      verification_tier: "unverified",
       is_approved: false,
     };
 
@@ -349,6 +359,25 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "That company could not be verified. Please search again." }, { status: 400 });
       }
       payload.organization_id = rawOrgId;
+
+      // Optional verification (M5.3). A grant is redeemed ONLY against the
+      // organization just re-verified above — a grant for org A can never
+      // stamp a report about org B (redeemGrant's own org-mismatch check),
+      // and a mismatch leaves the nonce unconsumed for a legitimate retry.
+      // Entirely best-effort: any failure (invalid, expired, replayed,
+      // mismatched, or a redeem error) leaves verification_tier 'unverified'
+      // and the submission proceeds. Verification is additive, never a gate.
+      const grantToken = typeof body.verification_token === "string" ? body.verification_token : null;
+      if (grantToken) {
+        try {
+          const redeemed = await redeemGrant(supabase, grantToken, rawOrgId);
+          if (redeemed.ok) {
+            payload.verification_tier = redeemed.tier;
+          }
+        } catch (err) {
+          console.error("[api/submit] grant redemption failed (submission still proceeds):", err);
+        }
+      }
     } else {
       payload.organization_id = null;
       // Best-effort, non-blocking — uses the ORIGINAL typed text (before slug

@@ -214,6 +214,69 @@ describe("account tables are private by construction", () => {
   });
 });
 
+describe("M5.2a — verification_grants (INV-V) is structurally disjoint from evidence", () => {
+  // See the M5.2 architecture decision §7 (INV-V): no verification artifact —
+  // address, domain, OTP, document, IP, token, or nonce — may be stored on,
+  // foreign-keyed to, or joinable with an evidence row. verification_grants
+  // is deliberately content-free: sha256(nonce) + expires_at, nothing else.
+  // The organization/tier binding lives only inside the signed grant TOKEN
+  // (src/lib/verification/token.ts), never in this table.
+  const VERIFICATION_MIGRATION = "0027_submission_verification.sql";
+  const sql = executableSql(VERIFICATION_MIGRATION);
+
+  function tableBody(name: string): string {
+    const start = sql.indexOf(`create table if not exists ${name} (`);
+    expect(start, `${name} table declaration not found in ${VERIFICATION_MIGRATION}`).toBeGreaterThan(-1);
+    const end = sql.indexOf(");", start);
+    return sql.slice(start, end);
+  }
+
+  it.each(EVIDENCE_TABLES)("verification_grants declaration does not reference %s", (table) => {
+    const body = tableBody("verification_grants");
+    expect(
+      body.includes(table),
+      `verification_grants references ${table} — this would be a linkage path from a verification artifact into evidence.`
+    ).toBe(false);
+  });
+
+  it("verification_grants contains no identity or linkage columns", () => {
+    const body = tableBody("verification_grants");
+    const FORBIDDEN = ["email", "phone", "organization_id", "submission_id", "nonce", "address", "domain", "user_id", "ip_address"];
+    for (const column of FORBIDDEN) {
+      expect(
+        body.includes(column),
+        `verification_grants declaration mentions "${column}" — INV-V requires this table to hold only grant_hash + expires_at.`
+      ).toBe(false);
+    }
+  });
+
+  it("verification_grants declares exactly grant_hash and expires_at", () => {
+    const body = tableBody("verification_grants");
+    expect(body).toContain("grant_hash");
+    expect(body).toContain("expires_at");
+    // Count declared columns via comma-separated lines inside the parens —
+    // a coarse but effective guard against a silently-added third column.
+    const columnLines = body
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0 && !l.startsWith("create table"));
+    expect(columnLines.length).toBeLessThanOrEqual(2);
+  });
+
+  it("verification_grants has RLS enabled and zero policies (service-role only)", () => {
+    expect(sql).toContain("alter table verification_grants enable row level security");
+    const policyBlocks = sql.match(/create policy[^;]*verification_grants/g) ?? [];
+    expect(policyBlocks).toHaveLength(0);
+  });
+
+  it("the hiring_submissions verification_tier column stores only a coarse enum, never a raw identity value", () => {
+    expect(sql).toMatch(/verification_tier text not null default 'unverified'/);
+    expect(sql).toMatch(
+      /check \(verification_tier in \('unverified', 'inbox_verified', 'contact_domain', 'attested'\)\)/
+    );
+  });
+});
+
 describe("public read surface is coarsened", () => {
   it("exposes reported_month and never created_at", () => {
     const sql = executableSql("0003_fingerprint_model.sql");

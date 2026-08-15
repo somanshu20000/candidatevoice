@@ -31,6 +31,10 @@ const LEDGER = readFileSync(
   join(process.cwd(), "supabase/migrations/0026_moderation_audit_ledger.sql"),
   "utf8"
 );
+const VERIFICATION = readFileSync(
+  join(process.cwd(), "supabase/migrations/0027_submission_verification.sql"),
+  "utf8"
+);
 
 // Every real column on hiring_submissions (0000_baseline_hiring_submissions.sql
 // + 0002/0014/0018/0019/0020's additions), EXCLUDING the three the guard must
@@ -105,6 +109,61 @@ describe("0025 — hiring_submissions_guard_immutable column coverage", () => {
     // A bypass would look like `if actor = 'admin' then return new;` or a
     // second trigger that fires only for certain roles. Neither exists.
     expect(IMMUTABILITY).not.toMatch(/current_user\s*=|session_user\s*=|role\(\)\s*=/);
+  });
+});
+
+describe("0027 — verification_tier is locked by the redefined guard function", () => {
+  // verification_tier did not exist when 0025 was written, so 0025's guard
+  // function text cannot mention it — an unlisted column would, by the
+  // guard's own logic, be silently mutable. 0027 fixes this via CREATE OR
+  // REPLACE FUNCTION on the SAME function name the 0025 trigger already
+  // points at (no trigger DDL needed). This tests the ACTUAL deployed/latest
+  // function body — 0027's redefinition — not a synthetic concatenation.
+  function guardBody(sql: string): string {
+    const start = sql.indexOf("function hiring_submissions_guard_immutable()");
+    expect(start, "0027 must redefine hiring_submissions_guard_immutable()").toBeGreaterThan(-1);
+    const bodyStart = sql.indexOf("as $$", start);
+    const bodyEnd = sql.indexOf("$$;", bodyStart);
+    return sql.slice(bodyStart, bodyEnd);
+  }
+
+  it("0027 redefines the guard via CREATE OR REPLACE, not a new function/trigger", () => {
+    expect(VERIFICATION).toMatch(/create or replace function hiring_submissions_guard_immutable\(\)/);
+    // No new trigger declaration — the existing 0025 trigger must pick this
+    // up automatically by pointing at the same function name.
+    expect(VERIFICATION).not.toMatch(/create trigger hiring_submissions_immutable/);
+  });
+
+  it("the redefined guard locks verification_tier", () => {
+    const body = guardBody(VERIFICATION);
+    expect(
+      /new\.verification_tier\s+is distinct from\s+old\.verification_tier/.test(body),
+      "0027's guard function does not lock verification_tier — it would be silently mutable after insert"
+    ).toBe(true);
+  });
+
+  it("the redefined guard still locks every original column (no regression from the rewrite)", () => {
+    const body = guardBody(VERIFICATION);
+    for (const col of IMMUTABLE_COLUMNS) {
+      expect(
+        body.includes(`new.${col}`) && body.includes(`old.${col}`),
+        `0027's redefined guard dropped the check for "${col}" — a rewrite regression`
+      ).toBe(true);
+    }
+  });
+
+  it("the redefined guard still leaves the three legitimate mutation columns mutable", () => {
+    const body = guardBody(VERIFICATION);
+    for (const col of MUTABLE_COLUMNS) {
+      expect(
+        new RegExp(`new\\.${col}\\b`).test(body),
+        `0027's redefined guard unexpectedly checks column "${col}" — this must stay mutable`
+      ).toBe(false);
+    }
+  });
+
+  it("raises the same exception message as the original 0025 guard", () => {
+    expect(VERIFICATION).toMatch(/raise exception 'hiring_submissions rows are immutable except is_approved, rejected_at and organization_id'/);
   });
 });
 

@@ -15,7 +15,7 @@ function item(fields: Partial<EvidenceItem> & Pick<EvidenceItem, "id">): Evidenc
     paymentFlag: null, callDuration: null, firstInteractionOutcome: null, applicationChannel: null,
     salaryHistoryStage: null, salaryProofType: null, salaryProofStage: null, salaryRangeDisclosed: null,
     exitExperienceLetter: null, exitSettlement: null, exitDocumentation: null,
-    wouldRecommend: null, tenureBucket: null, conductEnvironment: null, extractionConfidence: null,
+    wouldRecommend: null, tenureBucket: null, conductEnvironment: null, extractionConfidence: null, verificationTier: "unverified",
     ...fields,
   };
 }
