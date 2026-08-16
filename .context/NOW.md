@@ -3,16 +3,41 @@
 **Current phase:** V0.2 / V2.3 / V3.1 / V3.2 shipped. M5.5·V0.3 (live HTTP QA) **BLOCKED** on the `VERIFICATION_SECRET` save; V1.2 + dogfood are **HUMAN**.
 **Last updated:** 2026-08-16.
 
-## V0.3 re-check (4th attempt on the secret)
+## V0.3 re-check (4th attempt on the secret) — STILL BLOCKED, ruled out staleness conclusively
 
-Told the secret was configured and redeployed again. `list_deployments` showed
-no new deployment past this session's own `f8fa3af` push (V0.2/V2.3/V3.1/V3.2)
-— same "save didn't reach a build yet" pattern as three earlier attempts.
-Pushing this doc update to trigger a fresh build (routine, pre-authorized),
-then re-checking `POST /api/verify/grant` for a positive `200 + token` before
-running V0.3. If it's still `500` after a genuinely new deployment, the
-secret itself is not saved as Production-scoped — the same conclusion as the
-prior attempts, not a new finding.
+Told the secret was configured and redeployed again. `list_deployments`
+initially showed no new deployment past this session's own `f8fa3af` push. A
+docs commit was pushed specifically to trigger a fresh build (routine,
+pre-authorized) → produced a genuinely new, `READY` deployment
+(`dpl_FCPZMxyL6X3V1bY8i2aCEqutdmvB`, built minutes after the "it's redeployed"
+claim). `POST /api/verify/grant` against THAT deployment **still** returned
+`500 "Verification is not configured."`
+
+**This is no longer a staleness question.** Two separate fresh-deployment
+tests (this session and the prior one) both failed identically on brand-new
+builds. The variable is not reaching the running process — which under
+Vercel's model means it was never actually saved and scoped correctly for
+Production on the `candidatevoice` project, not that a rebuild was needed.
+
+**Specific things worth checking that haven't been named yet, since generic
+"check the dashboard" has now been asked four times without resolving it:**
+1. **Wrong project.** This Vercel team (`myfoodstats-projects`) has THREE
+   projects: `candidatevoice`, `waterfallq-com`, `waterfall-q`. If the var was
+   added to the wrong one, it would never reach this app no matter how many
+   times it's redeployed.
+2. **Exact name match.** `process.env.VERIFICATION_SECRET` is exact-match —
+   a trailing space, a typo, or different casing in the variable NAME (not
+   value) silently fails with no error either at save time or at runtime.
+3. **Save didn't actually commit.** Some browsers/extensions can intercept a
+   form submit; confirm the variable appears in the list AFTER a page reload,
+   not just that it was typed and "Save" was clicked.
+4. **Branch-scoped, not Production-scoped.** Vercel allows scoping a variable
+   to a specific git branch in addition to environment; if it's scoped to a
+   branch other than what Production actually deploys from, Production builds
+   won't see it even though it "exists."
+Per your instruction to stop only at genuine human-gated decisions: this now
+qualifies. V0.3 was correctly NOT run against a confirmed-nonfunctional
+endpoint — no QA org action taken, no pipeline exercised.
 
 Unrelated, reported by the user mid-session: `naukri.com` returns "no company
 matches" on `/companies`. Verified live — NOT a search bug. `zoho` resolves
