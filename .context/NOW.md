@@ -1,7 +1,222 @@
 # NOW — CandidateVoice project state
 
-**Current phase:** V0.2 / V2.3 / V3.1 / V3.2 shipped. M5.5·V0.3 (live HTTP QA) **BLOCKED** on the `VERIFICATION_SECRET` save; V1.2 + dogfood are **HUMAN**.
-**Last updated:** 2026-08-16.
+**Last updated:** 2026-08-16 (session-end handoff snapshot — read this section first, in full, before touching code).
+
+`.context/CONTEXT.md` does not exist in this repo (confirmed repeatedly across
+sessions) — this file (`NOW.md`) plus `DECISIONS.md` are the complete project
+memory. Everything below this snapshot section is historical detail, kept in
+case the "why" behind an earlier decision matters; it is NOT more current than
+this section.
+
+---
+
+## SESSION-BOOT SNAPSHOT
+
+### Current milestone
+Between the V-roadmap (V0–V3, mostly shipped) and a newly-identified,
+**not-yet-built** product gap: strangers cannot request a company that isn't
+in the directory from the main search — only from deep inside the `/submit`
+wizard. This was reported by the user mid-session (searching "naukri.com"),
+investigated, root-caused, but **zero code was written for the fix** — the
+session ended at the investigation stage. See "Exact next task" below for the
+precise, already-designed fix to implement.
+
+### What is COMPLETE (this session and prior)
+- **M5.2a / M5.3** — verification envelope (grant/consume/submit wiring),
+  migrations 0027–0028. Built, tested, committed (`ed3cde2`).
+- **M5.4** — migrations 0025–0028 applied to production (0025/0026 were also
+  never-applied leftovers from the M4 session, discovered and fixed here);
+  full pipeline DB-verified via the dedicated QA org. Commit `a0d859e`.
+- **V1.1 / D-026** — closed a REAL n=1 anonymity leak: `hiring_opportunities`/
+  `hiring_events` base tables had an unconditional anon SELECT policy (RLS is
+  row-only, can't hide a column), so the "coarsened" public view was
+  bypassable. Fixed with column-level `GRANT`/`REVOKE`, migration `0029`,
+  applied to production, live-verified (`anon` genuinely gets
+  `permission denied` on the exact-timestamp columns now). Commit `80ba803`.
+- **V0.2** — `GET /api/verify/health` (admin-gated, `{configured:boolean}`,
+  never leaks the secret) — the positive-readiness-check pattern that replaces
+  inferring readiness from absence of an error string.
+- **V2.3** — submit-page privacy copy (`<details>` "How your report stays
+  anonymous", no JS, collects nothing new).
+- **V3.1** — `src/lib/evidence/readiness.ts` (`evidenceReadiness`), admin API
+  `GET /api/admin/evidence-readiness`, admin-page banner. Measures progress
+  toward the documented evidence target using the real engine, no new
+  aggregation path.
+- **V3.2 / D-025** — documented: M5.2b stays deferred, `attested` is the
+  cheaper first verified tier if ever needed, external/M6 gate (first-party
+  base + Q-2 + vendor/legal), the measurable evidence bar (1 company ≥5
+  threshold; 3 ≥5 with one ≥8 target).
+  (V0.2/V2.3/V3.1/V3.2 all in commit `f8fa3af`.)
+- **Diagnosed, not a bug:** the "naukri.com — no matches" report. Live-verified
+  `search_organizations_ranked('zoho', …)` returns a perfect match; the same
+  RPC for `'naukri.com'` correctly returns zero rows because Naukri/Info Edge
+  has never been added to `organizations`. Search itself works.
+
+### What is IN PROGRESS (investigated, NOT implemented — do this next)
+**The actual product gap the "naukri.com" report surfaced**, per the user's
+explicit follow-up instruction to fix it. Root-caused, not yet built:
+
+1. **`company_requests` has ZERO anon/authenticated RLS policy** — see
+   migration `0022` lines ~172–175: *"Deliberately no anon/authenticated
+   policy of any kind: every access — insert from the submit route, list/
+   approve/reject from admin — goes through the service-role client."* There
+   is **no public write path to this table at all** today except as a
+   side-effect of the full `/api/submit` hiring-report route.
+2. **The main search's empty state routes to the wrong place.** Both
+   `src/app/companies/page.tsx`'s `EmptyState` (query-with-zero-matches path)
+   and `src/components/CompanySearch.tsx`'s no-results fallback link to
+   `/submit?company=<query>` — the ENTIRE multi-step hiring-REPORT wizard. A
+   stranger who only wants to flag "this company should be added" is currently
+   forced to navigate a form built for reporting an interview experience, and
+   the actual "isn't listed" → `company_requests` write only happens **deep
+   inside that wizard's `CompanyPicker`** (`src/app/submit/page.tsx`,
+   `createCompanyRequest` in `src/lib/company-intelligence/resolve.ts:115`).
+   That path already works correctly for candidates already in the wizard —
+   it is NOT being replaced, only supplemented.
+3. **What already exists and should be reused, not rebuilt:**
+   - `createCompanyRequest(supabase, {requestedName, requestedDomain,
+     requesterNote})` — `src/lib/company-intelligence/resolve.ts:115` — already
+     does the insert. Currently only called from `/api/submit`'s server-side
+     admin client.
+   - `src/lib/company-intelligence/requests.ts` — the FULL admin
+     promote/merge/reject flow (M5.1), already complete, needs zero changes.
+     `promoteCompanyRequest` already has D-009 duplicate/domain-collision
+     re-verification **at promote time** (re-resolves slug via
+     `resolve_organization`, checks `company_links.normalized_domain`).
+   - `checkAndRecordRateLimit` (`src/lib/rate-limit.ts`) — the existing
+     rate-limit pattern already used by `/api/submit` and `/api/verify/grant`.
+   - `company_requests` table schema (migration `0022`) already has every
+     column needed: `requested_name`, `requested_domain`, `requester_note`.
+
+**The smallest complete fix (designed, not built):**
+- **New public API route**, e.g. `POST /api/company-requests/create` — rate-
+  limited (reuse `checkAndRecordRateLimit`), server-side using
+  `createAdminClient()` (the anon key must never touch `company_requests`
+  directly — matches the table's own "deliberately no anon policy" design).
+  Accepts `{name, domain?, note?}`. **Before inserting**, run the SAME class
+  of duplicate/collision check `promoteCompanyRequest` already does, but at
+  REQUEST time instead of promote time: (a) does the name already resolve to
+  a real organization (`resolve_organization` RPC) — if so, tell the caller
+  it's already listed, point them at it, don't create a request; (b) does the
+  domain already belong to an organization (`company_links.normalized_domain`)
+  — same treatment; (c) does a `pending` request already exist for a
+  near-identical name/domain — if so, don't create a duplicate pending row
+  (either no-op with a friendly "already requested, awaiting review" message,
+  or skip silently — decide which reads more honest before building). This is
+  D-009/D-021's own reasoning, just applied one lifecycle stage earlier.
+- **UI**: replace the `/submit?company=` redirect in `CompanySearch.tsx`'s and
+  `companies/page.tsx`'s empty/no-match states with a small, direct "Add this
+  company" affordance (name pre-filled from the query, optional domain/note
+  fields) that posts to the new route — NOT the full wizard. Keep `/submit`'s
+  own "isn't listed" path unchanged for people already in that flow.
+- **Once promoted**, no further work is needed — `searchCompanies`/
+  `search_organizations_ranked` query `organizations` directly, so a promoted
+  company is immediately searchable (requirement 6 in the original ask is
+  already satisfied by the existing M5.1 promote path).
+- **Tests to add**: unit tests for the new route's duplicate/collision
+  pre-check (mirroring `tests/company-requests.test.ts`'s existing fake-
+  Supabase-client convention), and a UI-level check that the empty state now
+  offers the lightweight flow rather than linking to `/submit`.
+
+### What is BLOCKED (human-owned, do not retry without new information)
+**M5.5 · V0.3 — the live HTTP verification QA flow.** `VERIFICATION_SECRET`
+still does not reach production. Confirmed on **two separate genuinely-fresh
+deployments** (this session's `dpl_HTq1r1EtjpkmZjYrwqkhyZdDMWbE` and
+`dpl_FCPZMxyL6X3V1bY8i2aCEqutdmvB`, each built AFTER being told the secret was
+freshly configured) — `POST /api/verify/grant` still returns
+`500 {"error":"Verification is not configured."}` on both. **This is
+conclusively not a staleness/redeploy problem** — do not trigger another
+redeploy to test this again without a specific new reason to believe the save
+itself changed. Four specific, previously-unstated things to check, in order
+of likelihood:
+1. **Wrong Vercel project** — the `myfoodstats-projects` team has THREE
+   projects (`candidatevoice`, `waterfallq-com`, `waterfall-q`); confirm the
+   var was added to `candidatevoice` specifically.
+2. **Exact variable name** — `process.env.VERIFICATION_SECRET` is exact-match;
+   check for a typo, trailing space, or wrong case in the NAME.
+3. **Save didn't commit** — reload the Environment Variables page after
+   saving and confirm the row is actually there.
+4. **Branch-scoped, not Production-scoped** — Vercel can scope a var to a
+   specific git branch in addition to environment; confirm it applies to
+   whatever branch Production actually builds from (`main`).
+
+The health-check endpoint (`GET /api/verify/health`, V0.2, admin-gated) exists
+for a low-cost first check, but the authoritative signal is always a real
+`POST /api/verify/grant` returning `200 + token` — never inferred from
+anything else.
+
+**Also human, untouched by rule (unchanged from earlier in the session):**
+- **V1.2** — 5 real, pending `hiring_submissions` rows in production, never
+  approved/rejected — a genuine moderation decision, not touched.
+- **V2.1 / V2.2** — dogfooding one real candidate and one real employee report
+  once V1.1's leak-close (done) makes it safe to do so.
+
+### Production state
+- **Migrations 0000–0029 all applied** (confirmed via `list_migrations` this
+  session) — production is fully current with the local migration files.
+  Nothing pending on the DB side.
+- **Latest deployment:** `dpl_9fY5CTssBHHRDYVrPx4nrSWAnUvb`, `READY`, built
+  from this session's last push. Serves all V0.2/V2.3/V3.1/V3.2/V1.1 code.
+- **`VERIFICATION_SECRET`** — still not present in the running production
+  process (see BLOCKED above).
+- **5 pending `hiring_submissions`** in production — real, untouched, awaiting
+  a human moderation decision (V1.2).
+- **QA organization** `m54-qa-verification-test` (id
+  `b77ee3bd-f7f7-4e59-b67d-3eacf08c1597`) exists in production — the ONLY
+  organization any automated QA in this project may act against. Currently
+  has zero submissions attached (the last QA test row was rejected and
+  removed from public view in M5.4).
+- **No production evidence data has been fabricated, approved, or rejected**
+  by any automated action this entire session.
+
+### Latest commits (main, all pushed to `origin`)
+```
+52f3d9f docs: V0.3 4th attempt - staleness ruled out, genuine save issue confirmed
+a0e64f7 docs: V0.3 4th re-check + naukri.com search non-bug investigation
+f8fa3af V0.2/V2.3/V3.1/V3.2: the safely-buildable remainder of the roadmap
+80ba803 V1.1: close the hiring-opportunity n=1 timing leak (column-level RLS gap)
+f52a095 M5.5: isolate root cause — VERIFICATION_SECRET never saved as Production-scoped
+e4d236a M5.5: document repeated redeploy blocker, trigger a fresh production build
+a0d859e M5.4: production verification gate — apply 0025-0028, live-verify pipeline
+ed3cde2 M5.2a + M5.3: verification envelope wired to approved evidence
+abd42f3 feat: M5.1 company-request moderation and promotion
+```
+**Working tree:** only long-standing, pre-existing collaborator/untracked
+files remain modified (`package.json`, `scripts/*`, a few `src/lib/company-
+intelligence` and `src/lib/hiring-intel` files, several `.bak`/untracked
+files) — all present since before this session began, all deliberately left
+untouched across every commit this session made. No session-authored code is
+uncommitted.
+
+### Current roadmap
+| Item | Status |
+|---|---|
+| V0.1 (set `VERIFICATION_SECRET`, Production-scoped) | **HUMAN, blocked** |
+| V0.2 (readiness guard) | ✅ done |
+| V0.3 (live HTTP QA flow) | **BLOCKED on V0.1** |
+| V1.1 (timing leak) | ✅ done, D-026 |
+| V1.2 (triage 5 real pending submissions) | **HUMAN** |
+| V2.1 / V2.2 (dogfood real reports) | **HUMAN** |
+| V2.3 (privacy copy) | ✅ done |
+| V3.1 (evidence-readiness metric) | ✅ done |
+| V3.2 (document deferrals) | ✅ done, D-025 |
+| **"Add this company" gap** (this session, new) | **DESIGNED, not built — see below** |
+| M6 (external acquisition) | Gated on evidence target + Q-2 + vendor/legal (D-025) — none met |
+
+### Exact next task
+Implement **"the smallest complete fix"** described in full under IN PROGRESS
+above: a rate-limited `POST /api/company-requests/create` route (server-side
+admin client, reusing `createCompanyRequest`) with request-time duplicate/
+domain-collision pre-checks, plus a lightweight "Add this company" UI
+affordance replacing the `/submit?company=` redirect in `CompanySearch.tsx`
+and `companies/page.tsx`'s empty states. Then: `npx tsc --noEmit` · `npx
+vitest run` (currently 727 tests, expect new ones for the route) · `npm run
+build` · live verification of existing search (Razorpay/Zoho), typo search,
+substring search, the new add/request flow end-to-end, and duplicate
+protection — then commit + push. Do not touch `VERIFICATION_SECRET`/M5.5
+while doing this (unrelated, human-blocked). Do not start M6.
+
+---
 
 ## V0.3 re-check (4th attempt on the secret) — STILL BLOCKED, ruled out staleness conclusively
 
