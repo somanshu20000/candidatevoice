@@ -1,6 +1,18 @@
 # NOW — CandidateVoice project state
 
-**Last updated:** 2026-08-17 (session-end handoff snapshot — read this section first, in full, before touching code).
+**Last updated:** 2026-08-17, 2nd pass (audit — read this section first, in full, before touching code).
+
+**⚠ URGENT, unrelated to any code in this repo:** a same-day audit
+(`docs/q2-source-acquisition-plan.md` §0) found production's
+`external_sources.acquisition_enabled` is `true` for `glassdoor` /
+`ambitionbox` / `linkedin` — never set by any committed migration, and
+contradicting D-005 ("never crawl LinkedIn") plus those sources' own recorded
+`proprietary-no-redistribution` license. **No harm done yet** (0 rows exist in
+`external_reports` for any source, and nothing in this codebase currently acts
+on that column besides read-only gating). **Needs a human decision before any
+further Q-2/M6 work**: confirm whether this was ever a deliberate, licensed
+choice, or authorize reverting it (`docs/q2-source-acquisition-plan.md` §0 has
+the exact one-line `UPDATE`, not run).
 
 `.context/CONTEXT.md` does not exist in this repo (confirmed repeatedly across
 sessions) — this file (`NOW.md`) plus `DECISIONS.md` are the complete project
@@ -186,16 +198,21 @@ uncommitted.
 | PixelRAG integration (search fallback + Case-1 skeleton) | ✅ done, D-027 |
 | Case 1 live data (external evidence via PixelRAG) | **BLOCKED on Q-2** (no licensed source) |
 | M6 (external acquisition) | Gated on evidence target + Q-2 + vendor/legal (D-025) — none met |
+| Q-2 audit + acquisition plan | ✅ done, this pass — `docs/q2-source-acquisition-plan.md` |
+| `acquisition_enabled` drift (glassdoor/ambitionbox/linkedin) | **URGENT, HUMAN** — see top of this file |
 
 ### Exact next task
-No safely-buildable engineering task remains queued. The two live options are
-both human-owned: **V0.1** (set `VERIFICATION_SECRET` as a Production-scoped
-Vercel var — do not retry-deploy to test this without new information, per
-standing instruction) or **Q-2** (choose and credential a licensed/permitted
-external source, which unblocks `seed-pipeline.ts`'s Case-1 import with zero
-further plumbing). If neither is resolved, the next session should re-read
-this file, confirm nothing has changed, and ask the user which human gate to
-pursue rather than inventing new scope.
+Three human-owned items, no more engineering to do until one is resolved:
+1. **(Most urgent)** Decide on the `acquisition_enabled` drift — confirm or
+   revert (see top of this file / `docs/q2-source-acquisition-plan.md` §0).
+2. **V0.1** — set `VERIFICATION_SECRET` as a Production-scoped Vercel var (do
+   not retry-deploy to test this without new information, per standing
+   instruction).
+3. **Q-2** — register a free Reddit API credential
+   (`REDDIT_CLIENT_ID`/`REDDIT_CLIENT_SECRET`) to run the recommended pilot;
+   full plan and pipeline mapping in `docs/q2-source-acquisition-plan.md`.
+If none is resolved, the next session should re-read this file, confirm
+nothing has changed, and ask which to pursue rather than inventing new scope.
 
 ---
 

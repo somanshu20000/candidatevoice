@@ -916,7 +916,7 @@ plumbing required.
 | # | Question | Blocked on |
 |---|---|---|
 | Q-1 | How do companies authenticate to post HR updates? | **Designed** (D-017, `docs/design-hr-authentication.md`), **not built**. Implementing it is the remaining blocker on roadmap items 6 & 8. |
-| Q-2 | Where does genuine external seed data come from? | Reddit API credentials; a licensed source. All four sources currently hold 0 reports. |
+| Q-2 | Where does genuine external seed data come from? | **See `docs/q2-source-acquisition-plan.md` (2026-08-17 audit + plan).** Recommended pilot: Reddit, needs only free `REDDIT_CLIENT_ID`/`REDDIT_CLIENT_SECRET` credentials, zero new code. **Urgent, separate finding in that doc:** production's `external_sources.acquisition_enabled` is currently `true` for `glassdoor`/`ambitionbox`/`linkedin` — contradicting D-005 and their own recorded `proprietary-no-redistribution` license — and was never set by any committed migration or decision. Needs a human confirm-or-revert decision before Q-2 work proceeds. |
 | Q-3 | Do timeline events ever feed HQS? | Deliberately **not** wired today (D-016 reaffirms). Needs its own decision — events are perception-heavy and would change what HQS means. |
 | Q-4 | Who runs staleness when nobody loads the page? | No scheduler exists (D-012). |
 | Q-5 | Should `public_hiring_opportunities.first_observed_at` be coarsened? | Exact timestamp is an n=1 correlation vector for single-report opportunities (flagged in D-016). Schema change, out of scope for the analytics task that found it. |
