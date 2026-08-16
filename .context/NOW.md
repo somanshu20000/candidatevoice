@@ -1,7 +1,69 @@
 # NOW — CandidateVoice project state
 
-**Current phase:** M5.4 Production verification gate — **COMPLETE**.
+**Current phase:** M5.5 Live HTTP verification — **BLOCKED, not started (3rd attempt)**.
 **Last updated:** 2026-08-16.
+
+## Headline (M5.5)
+
+M5.5 asked to verify `VERIFICATION_SECRET` is active in production, then run
+the full `grant → consume → /api/submit → moderation → approved
+public_submissions → fingerprint` flow over real HTTP. **Still not active** on
+a third attempt, after twice being told the secret was configured/redeployed.
+`POST https://candidatevoice.vercel.app/api/verify/grant` returns
+`500 {"error":"Verification is not configured."}`.
+
+**Confirmed three independent ways this pass:** `get_project`'s
+`latestDeployment` is still `dpl_97QahqkNCvApVbPZV7vwmR6ViFb7` (built from
+commit `a0d859e`, the M5.4 commit — unchanged across all three attempts);
+`list_deployments` since that timestamp returns zero newer deployments; and
+the production runtime log for the exact diagnostic request just made
+(`08:17:59`, `cache=MISS`) shows it was served by that same deployment ID. No
+new deployment has reached production despite two rounds of "it's redeployed."
+
+Per M5.5's own instruction to verify the secret first, **the HTTP flow was
+again correctly not attempted** — no grant beyond the diagnostic check, no
+consume, no test submission, no production data touched this pass.
+
+**Two specific things worth checking, since this has recurred three times:**
+1. Vercel dashboard → candidatevoice → Deployments — does the top entry show
+   a fresh timestamp with a deployment ID other than `97QahqkN...`? If not,
+   the redeploy didn't actually land on production.
+2. When `VERIFICATION_SECRET` was added in Settings → Environment Variables,
+   was the **Production** environment checkbox selected? A save scoped only
+   to Preview/Development would never appear here even after a genuine
+   redeploy.
+
+Once a genuinely new `latestDeployment` id is confirmed, re-run M5.5.
+
+### What's still needed (unchanged from the M5.4 report)
+Add `VERIFICATION_SECRET` in the Vercel dashboard — **candidatevoice**
+project → Settings → Environment Variables → Production scope — using the
+value already generated and saved locally (not in the repo) at
+`C:\Users\RAJNISH\AppData\Local\Temp\claude\D--Claud-Highlight\a19193da-6e93-41c6-ba5d-e0ddd27ba817\scratchpad\verification_secret.txt`,
+then trigger a new deployment (env var changes don't apply to
+already-running deployments). I have no Vercel tool that can read, set, or
+list a project's environment variables — confirmed again this session by
+enumerating every tool this Vercel MCP connection exposes (projects,
+deployments, build/runtime logs, protection settings, analytics, purchases,
+agent-run observability) — so this remains a manual step for a human with
+dashboard access.
+
+### Test results
+`npx tsc --noEmit` — clean. `npx vitest run` — **49 files, 702 tests,
+unchanged** (no code changed this milestone). `npm run build` — clean.
+
+### Next milestone
+Set `VERIFICATION_SECRET` in Vercel and redeploy, then re-run M5.5: confirm
+`POST /api/verify/grant` returns `200 {token, expiresAt}` for the existing
+QA organization (`organizations.slug = 'm54-qa-verification-test'`, id
+`b77ee3bd-f7f7-4e59-b67d-3eacf08c1597`, reused from M5.4 — no new QA
+organization needed), then run the grant → consume → submit → moderate →
+public → fingerprint chain, and reject the resulting test submission
+afterward exactly as M5.4 did, so it never becomes public evidence.
+
+---
+
+## Headline (M5.4 — superseded above)
 
 ## Headline (M5.4)
 
