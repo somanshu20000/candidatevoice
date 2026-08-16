@@ -721,6 +721,56 @@ to prove a database guarantee, even briefly.
 
 ---
 
+## D-025 · M5.2b stays deferred; the evidence gate, not verification, is the priority
+**Status:** Accepted · 2026-08-16 · roadmap V3.2 (planning decision, no code)
+
+Records three linked sequencing decisions so nobody builds them out of order.
+
+**1. M5.2b (the emailed `contact_domain` tier) stays DEFERRED.** The envelope
+it sits on (M5.2a/M5.3) is built and pipeline-verified, but the emailed tier
+adds a whole new failure domain — an email vendor, a new credential, SPF/DKIM,
+deliverability/bounce handling, and a legal choice about the vendor's delivery-
+log retention (the M5.2 architecture §11 gate, since those logs hold recipient
+addresses at company domains — threat T2). With ~0 approved evidence in
+production, verification protects a supply that does not yet exist while adding
+friction to the exact funnel that is the bottleneck. It also only ever helps
+*current employees* (F1) — the highest-retaliation-risk cohort (F2) — so it is
+least useful where it is most dangerous. **Do not build it now.**
+
+**2. If a verified signal is ever needed sooner, `attested` is the cheaper
+first step — not M5.2b.** The `attested` tier (a human moderator reviewing
+out-of-band proof through the existing admin surface, the M5.1 pattern) needs
+NO vendor, NO email, NO new failure domain. It is the correct first verified
+tier to reach for if demand appears before the email gate is worth crossing.
+Either way, verification remains optional, never required, never weighted
+(D-022 / M5.2 architecture §17-B) — a tier is provenance metadata, never trust.
+
+**3. External evidence acquisition / M6 is gated on three preconditions, none
+met today:** (a) a real first-party evidence base — external weighting is
+meaningless relative to zero first-party (D-001); (b) resolved Q-2 — a
+*permitted* source with credentials or a license (D-005 forecloses LinkedIn;
+all four external sources currently hold 0 reports, D-013); (c) the same
+vendor/legal gate as §11. Do not start M6 before all three hold.
+
+**The measurable bar for "enough evidence" (the V3.1 metric enforces this
+definition, using the engine's own floors):**
+- THRESHOLD — mechanism proven: ≥1 company at the HQS floor
+  (`HQS_MIN_EFFECTIVE_N` = 5), i.e. HQS actually renders somewhere.
+- TARGET — genuinely useful: ≥3 companies at the HQS floor, with ≥1 at a
+  stronger anchor (effectiveN ≥ 8), so browse/compare/search have real,
+  rankable content. (~18–25 genuine approved reports across 3–4 companies.)
+- STRETCH: one company at effectiveN ≥ 20 (`CONFIDENCE_SATURATION_N`) — full
+  search-ranking confidence.
+
+**Cost:** the verification envelope sits inert (no product UI drives it) until
+either the evidence bar is met or a concrete `contact_domain` demand appears —
+intentional, per the honest-priority note above. **Revisit if:** the V3.1
+metric shows the target met AND a concrete need for a domain-verified signal
+materializes (then M5.2b's vendor/legal gate becomes worth crossing), or a
+permitted external source with credentials is secured (then Q-2/M6 unblocks).
+
+---
+
 ## D-026 · RLS is row-only — a coarsening view over an unconditionally-open base table is not a privacy boundary
 **Status:** Accepted · 2026-08-16 · V1.1 (`supabase/migrations/0029_hiring_opportunity_timing_leak.sql`)
 

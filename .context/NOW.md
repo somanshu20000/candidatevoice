@@ -1,7 +1,66 @@
 # NOW — CandidateVoice project state
 
-**Current phase:** V1.1 (hiring-opportunity timing leak) — **COMPLETE, applied to production**. M5.5 (HTTP verification) still **BLOCKED** on the secret save issue.
+**Current phase:** V0.2 / V2.3 / V3.1 / V3.2 shipped. M5.5·V0.3 (live HTTP QA) **BLOCKED** on the `VERIFICATION_SECRET` save; V1.2 + dogfood are **HUMAN**.
 **Last updated:** 2026-08-16.
+
+## This pass — the buildable remainder of the roadmap (V0.2, V2.3, V3.1, V3.2)
+
+Worked the roadmap end-to-end, doing every task that can be completed safely
+without a human credential/decision, and stopping cleanly at each human
+boundary.
+
+**COMPLETE this pass (code + tests + build green, 727 tests):**
+- **V0.2 — verification readiness guard.** New `GET /api/verify/health`
+  (admin-gated via `isAuthorizedAdmin`) → `{configured: boolean}` from a new
+  `isVerificationConfigured()` in `token.ts`. Discloses only a boolean —
+  never the value/length/prefix. This is the POSITIVE readiness check that
+  replaces the error-absence inference that produced a false positive earlier.
+  Tests: `tests/verification-health.test.ts` (4).
+- **V2.3 — submit privacy copy.** `src/app/submit/page.tsx` gains a native
+  `<details>` "How your report stays anonymous" note (no JS, collects nothing
+  new): no PII stored (D-007), structured/closed-enum not free text, dates
+  coarsened to month (0003), small-company reports shown only in aggregate
+  above the floors (D-002). **Scope decision:** the verification-specific
+  "optional / not for conduct" copy is deferred to M5.2b, when an actual verify
+  affordance exists to attach it to — asserting it now, beside a UI with no
+  verify button, would confuse rather than reassure.
+- **V3.1 — evidence-readiness metric.** New pure `src/lib/evidence/readiness.ts`
+  (`evidenceReadiness(AnalyticsResult)`) reducing over the SAME engine
+  (`loadCompanyAnalytics`), no new aggregation path (D-001). Thresholds use the
+  real `HQS_MIN_EFFECTIVE_N` (5) + anchor 8 + target-count 3. Surfaced via
+  admin-gated `GET /api/admin/evidence-readiness` and a one-line banner on the
+  admin page. Tests: `tests/evidence-readiness.test.ts` (9).
+- **V3.2 — documented the deferrals as D-025** (M5.2b deferred; `attested` is
+  the cheaper first verified tier; external/M6 gated on first-party base +
+  Q-2 + vendor/legal; the measurable evidence bar).
+
+**BLOCKED — V0.3 (live HTTP QA flow):** still gated on `VERIFICATION_SECRET`
+being saved as a **Production** Vercel var (see M5.5 history below — a save
+issue, not staleness). Once this push deploys, `GET /api/verify/health` (with
+the admin bearer) is the safe positive check; if it reports `configured:true`
+AND a real `POST /api/verify/grant` returns `200 + token`, the QA flow
+(grant → consume → submit → approve → public → reject-cleanup, QA org only)
+can run. Not attempted this pass — the secret was not confirmed available and
+readiness must be asserted positively, never assumed.
+
+**HUMAN — not touched, by rule:**
+- **V0.1** — set/confirm `VERIFICATION_SECRET` as a Production Vercel var (no
+  tool can read/set Vercel env vars).
+- **V1.2** — the 5 pending PRODUCTION `hiring_submissions` are real; approving/
+  rejecting them is a human moderation decision.
+- **V2.1 / V2.2** — dogfooding a real candidate/employee report is a human
+  live action on real data.
+
+**Before M6 (external acquisition):** the evidence target (V3.1) must be met
+AND Q-2 resolved (a permitted source; D-005 forecloses LinkedIn) AND the
+vendor/legal gate — none met today. M6 = stand up a permitted external-source
+adapter behind the existing robots/SSRF/rate-limit HTTP layer, through the
+existing normalize→validate→moderate→weight pipeline. Do NOT start before the
+gates hold (D-025).
+
+---
+
+## V1.1 — closed the hiring-opportunity n=1 timing leak (prior pass, complete)
 
 ## V1.1 — closed the hiring-opportunity n=1 timing leak
 

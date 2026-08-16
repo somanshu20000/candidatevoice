@@ -9,6 +9,7 @@ import {
   responseTimeLabel,
   lastInteractionGapLabel,
 } from "@/utils/labels";
+import type { EvidenceReadiness } from "@/lib/evidence/readiness";
 
 type PendingSubmission = {
   id: string;
@@ -109,8 +110,18 @@ export default function AdminPage() {
   const [multiplier, setMultiplier] = useState<number | null>(null);
   const [multiplierInput, setMultiplierInput] = useState("");
   const [savingMultiplier, setSavingMultiplier] = useState(false);
+  // V3.1 — evidence-readiness (how close production is to a useful evidence base).
+  const [readiness, setReadiness] = useState<EvidenceReadiness | null>(null);
 
   const isReady = useMemo(() => secret.trim().length > 0, [secret]);
+
+  async function loadReadiness() {
+    const res = await fetch("/api/admin/evidence-readiness", {
+      headers: { Authorization: `Bearer ${secret.trim()}` },
+    });
+    const body = (await res.json().catch(() => null)) as { readiness?: EvidenceReadiness } | null;
+    if (res.ok && body?.readiness) setReadiness(body.readiness);
+  }
 
   async function loadMultiplier() {
     const res = await fetch("/api/admin/settings/external-multiplier", {
@@ -187,6 +198,7 @@ export default function AdminPage() {
     e.preventDefault();
     await loadTab(tab);
     void loadMultiplier();
+    void loadReadiness();
   }
 
   function selectTab(next: Tab) {
@@ -302,6 +314,23 @@ export default function AdminPage() {
         <p className="text-sm text-ink-muted">
           Moderation is the trust boundary. Nothing here influences the product until approved.
         </p>
+        {readiness && (
+          <p className="mt-3 text-xs font-mono text-ink-muted">
+            Evidence readiness:{" "}
+            <span className={readiness.metThreshold ? "text-good" : "text-ink-soft"}>
+              {readiness.companiesAtHqsFloor} at HQS floor (≥{readiness.hqsFloor})
+            </span>
+            {", "}
+            {readiness.companiesAtAnchor} at anchor (≥{readiness.anchor})
+            {", "}
+            {readiness.companiesWithEvidence} with any evidence.{" "}
+            {readiness.metTarget
+              ? "Target met."
+              : readiness.metThreshold
+                ? "Threshold met; target not yet."
+                : "Below threshold."}
+          </p>
+        )}
       </div>
 
       <form onSubmit={handleUnlock} className="border border-rule bg-paper-sheet rounded-sm p-5 mb-6 shadow-sheet">

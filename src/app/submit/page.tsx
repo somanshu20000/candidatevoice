@@ -178,6 +178,42 @@ const WARNING = (
   </div>
 );
 
+// V2.3 — an honest, plain-language statement of how a report stays anonymous.
+// Every claim here maps to an enforced invariant: no PII collected (D-007), a
+// closed-enum structured form rather than free text about a person, dates
+// coarsened to the month at the public boundary (public_submissions, migration
+// 0003), and small-company reports shown only in aggregate above a minimum
+// count (the effective-N floors, D-002) — never as one identifiable report.
+// A native <details> so it is unobtrusive (collapsed by default) and needs no
+// JavaScript. It collects nothing new.
+const PRIVACY_NOTE = (
+  <details className="mb-6 border border-rule rounded-sm bg-paper-sheet">
+    <summary className="cursor-pointer select-none px-4 py-2.5 text-xs font-mono uppercase tracking-wider text-ink-soft hover:text-ink">
+      How your report stays anonymous
+    </summary>
+    <div className="px-4 pb-4 pt-1 text-sm text-ink-muted leading-relaxed space-y-2">
+      <p>
+        We never ask for or store your name, email, or any contact detail. There
+        is no account and nothing that ties a report back to you.
+      </p>
+      <p>
+        The form is structured — you pick from set answers, you don&apos;t write
+        about a person. Reports describe what a company did, not who did it.
+      </p>
+      <p>
+        Dates are coarsened to the month before anything is shown publicly, so a
+        report can&apos;t be pinned to the moment you submitted it.
+      </p>
+      <p>
+        At a small company, a single report is never shown on its own. A
+        company&apos;s numbers appear only once enough people have reported the
+        same thing — below that threshold we show nothing, so no individual
+        report is identifiable.
+      </p>
+    </div>
+  </details>
+);
+
 const EMPTY: FormState = {
   relationship: "candidate",
   company: "", company_organization_id: null, company_confirmed_name: null,
@@ -657,7 +693,8 @@ export default function SubmitPage() {
       <Navbar />
       <main className="max-w-2xl mx-auto px-4 py-14 w-full flex-1">
         <h1 className="font-serif text-3xl text-ink mb-2">Share Your Experience</h1>
-        <p className="text-sm text-ink-muted mb-6">Anonymous. No personal data stored.</p>
+        <p className="text-sm text-ink-muted mb-4">Anonymous. No personal data stored.</p>
+        {PRIVACY_NOTE}
 
         {/* Relationship selector — decides which steps follow (stepsFor). Lives
             outside the numbered wizard since changing it resets the step list. */}

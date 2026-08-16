@@ -64,6 +64,17 @@ function getSecret(): string {
   return process.env.VERIFICATION_SECRET ?? "";
 }
 
+/**
+ * True iff VERIFICATION_SECRET is configured — the ONLY thing exposed about it.
+ * Used by the admin-gated /api/verify/health route so readiness can be asserted
+ * POSITIVELY (a boolean true), never inferred from the absence of an error
+ * string on the grant endpoint. Deliberately returns only a boolean: never the
+ * value, its length, or any prefix.
+ */
+export function isVerificationConfigured(): boolean {
+  return getSecret().length > 0;
+}
+
 function hmac(data: string): string {
   const secret = getSecret();
   if (!secret) return "";
