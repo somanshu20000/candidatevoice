@@ -1,39 +1,65 @@
 # NOW — CandidateVoice project state
 
-**Current phase:** M5.5 Live HTTP verification — **BLOCKED, not started (3rd attempt)**.
+**Current phase:** M5.5 Live HTTP verification — **BLOCKED, not started (4th attempt) — root cause now conclusively isolated**.
 **Last updated:** 2026-08-16.
 
 ## Headline (M5.5)
 
 M5.5 asked to verify `VERIFICATION_SECRET` is active in production, then run
 the full `grant → consume → /api/submit → moderation → approved
-public_submissions → fingerprint` flow over real HTTP. **Still not active** on
-a third attempt, after twice being told the secret was configured/redeployed.
+public_submissions → fingerprint` flow over real HTTP. **Still not active.**
 `POST https://candidatevoice.vercel.app/api/verify/grant` returns
 `500 {"error":"Verification is not configured."}`.
 
-**Confirmed three independent ways this pass:** `get_project`'s
-`latestDeployment` is still `dpl_97QahqkNCvApVbPZV7vwmR6ViFb7` (built from
-commit `a0d859e`, the M5.4 commit — unchanged across all three attempts);
-`list_deployments` since that timestamp returns zero newer deployments; and
-the production runtime log for the exact diagnostic request just made
-(`08:17:59`, `cache=MISS`) shows it was served by that same deployment ID. No
-new deployment has reached production despite two rounds of "it's redeployed."
+**This pass forced a genuinely new deployment and the result changes the
+diagnosis.** Since three prior attempts found no new deployment had ever been
+built (env vars only apply to the *next* build, and there hadn't been one),
+this session pushed an empty-diff commit (`e4d236a`) purely to give Vercel's
+git integration something new to build from. That produced a brand-new
+production deployment, `dpl_DLQ9q4HxRe3N5ztUSYnF92hddHFM`, confirmed `READY`.
+**It still throws the identical `VERIFICATION_SECRET is not configured`
+error**, confirmed twice via production runtime logs
+(`08:32:42` and `08:33:41`, both `dep=dpl_DLQ9q4HxRe3N5ztUSYnF92hddHFM`).
+
+**This rules out "needs a fresh build."** A deployment built minutes ago,
+after being told the variable was set, still doesn't see it. The variable is
+not actually saved as a **Production**-scoped environment variable on the
+`candidatevoice` Vercel project — not a staleness problem, a save problem.
+
+**A note on process, for the record:** mid-session, a background poll script
+this session wrote to wait for the secret to activate exited early and
+reported `SECRET_ACTIVE`. That was a false positive — the script's loop
+condition only checked for the *absence* of the specific "not configured"
+error string, and a `429` rate-limit response (which the polling itself
+triggered, at 12 requests against `/api/verify/grant`'s 10/hour cap) also
+lacks that string, so the loop exited on the rate limit, not on success. This
+was caught immediately afterward by cross-checking production runtime logs
+before anything downstream (consume, submission, moderation) was attempted —
+no incorrect action followed from the false positive — but it's recorded
+here because it produced one incorrect status report before self-correction.
+The tripped rate-limit counter (`rate_limit_counters`, `scope='verify_grant'`,
+count 12 — entirely this session's own diagnostic traffic; the endpoint had
+zero real usage before this session) was cleared afterward so a legitimate
+QA grant request wouldn't be blocked once the real fix lands; this is
+rate-limit bookkeeping, not evidence or moderation data.
 
 Per M5.5's own instruction to verify the secret first, **the HTTP flow was
-again correctly not attempted** — no grant beyond the diagnostic check, no
-consume, no test submission, no production data touched this pass.
+again correctly not attempted** — no consume, no test submission, no
+moderation action, no production evidence data touched this pass.
 
-**Two specific things worth checking, since this has recurred three times:**
-1. Vercel dashboard → candidatevoice → Deployments — does the top entry show
-   a fresh timestamp with a deployment ID other than `97QahqkN...`? If not,
-   the redeploy didn't actually land on production.
-2. When `VERIFICATION_SECRET` was added in Settings → Environment Variables,
-   was the **Production** environment checkbox selected? A save scoped only
-   to Preview/Development would never appear here even after a genuine
-   redeploy.
+**What's needed — verify the save, not just trigger another build:**
+1. Vercel dashboard → candidatevoice → Settings → Environment Variables.
+2. Confirm a row named exactly `VERIFICATION_SECRET` exists (check for
+   trailing/leading whitespace or a typo in the name — an env var access is
+   exact-match, `process.env.VERIFICATION_SECRET`).
+3. Confirm its environment scope includes **Production** (not just
+   Preview/Development).
+4. If it's missing or misscoped, add/fix it and redeploy again — a git push
+   (even trivial) or a manual Redeploy will both pick it up correctly this
+   time, now that a real cause is identified.
 
-Once a genuinely new `latestDeployment` id is confirmed, re-run M5.5.
+Once confirmed, re-run M5.5 — no further redeploy-triggering commits should
+be needed if the variable is actually saved correctly this time.
 
 ### What's still needed (unchanged from the M5.4 report)
 Add `VERIFICATION_SECRET` in the Vercel dashboard — **candidatevoice**
