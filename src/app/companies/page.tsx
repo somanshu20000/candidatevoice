@@ -2,6 +2,7 @@ import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import CompanyCard from "@/components/CompanyCard";
+import AddCompanyRequestForm from "@/components/AddCompanyRequestForm";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { listCompanies, type CompanyListItem } from "@/lib/company-intelligence/directory";
@@ -145,11 +146,7 @@ async function SearchView({ query, supabase }: { query: string; supabase: Supaba
           cta="Or share your own experience →"
         />
       ) : entityCompanies.length === 0 ? (
-        <EmptyState
-          message={`No company matches “${query}” yet.`}
-          href={`/submit?company=${encodeURIComponent(query)}`}
-          cta="Be the first to share an experience →"
-        />
+        <NoCompanyMatchState query={query} />
       ) : (
         <>
           {parsed.intent === "mixed" && parsed.signals.length > 0 && (
@@ -325,6 +322,26 @@ function CompanyGrid({ items }: { items: CompanyListItem[] }) {
       {items.map((company) => (
         <CompanyCard key={company.slug} company={company} />
       ))}
+    </div>
+  );
+}
+
+/** The specific "zero matches for a real company" state — offers the direct
+ *  request-queue path (AddCompanyRequestForm) instead of routing into the
+ *  full hiring-report wizard, which was the only existing way to reach
+ *  company_requests before this route existed. */
+function NoCompanyMatchState({ query }: { query: string }) {
+  return (
+    <div className="border border-dashed border-rule-strong bg-paper-sheet rounded-sm p-16 text-center">
+      <p className="text-sm text-ink-muted mb-1">No company matches “{query}” yet.</p>
+      <p className="text-xs text-ink-faint mb-4">If this is a real company, add it — an admin will review it shortly.</p>
+      <AddCompanyRequestForm defaultName={query} />
+      <p className="text-xs text-ink-faint mt-6">
+        Already worked there?{" "}
+        <Link href={`/submit?company=${encodeURIComponent(query)}`} className="text-accent hover:underline">
+          Share your experience →
+        </Link>
+      </p>
     </div>
   );
 }

@@ -30,11 +30,37 @@ import {
   githubOrgAdapter,
   websiteMetaAdapter,
 } from "./adapters";
-import { resolveVerifiedCompanyEntity, wikidataRecordFromEntity } from "./adapters/wikidata";
+import { resolveVerifiedCompanyEntity, resolveCompanyEntityByQid, wikidataRecordFromEntity } from "./adapters/wikidata";
 import { wikipediaRecordFromEntity } from "./adapters/wikipedia";
 import { fetchGithubOrg, GithubRateLimitError } from "./adapters/github-org";
 import { fetchWebsiteMeta } from "./adapters/website-meta";
 import { RobotsDisallowedError, SsrfBlockedError } from "./http";
+import { pixelragSearch } from "../external-intel/pixelrag";
+import { wikipediaTitleFromUrl, qidFromWikipediaTitle } from "../external-intel/wikipedia-qid";
+
+/**
+ * Fallback name resolution when Wikidata's own entity search (searchEntities,
+ * exact/prefix-oriented) finds nothing — e.g. a misspelling or an alternate
+ * name PixelRAG's semantic/fuzzy retrieval over its Wikipedia corpus can
+ * match but Wikidata's search cannot. PixelRAG NEVER supplies a fact here: it
+ * only proposes a candidate Wikipedia article, which must still resolve to a
+ * QID and pass Wikidata's own business-type verification gate
+ * (resolveCompanyEntityByQid) before anything is persisted. A PixelRAG match
+ * that fails that gate (wrong entity, not a business) is silently discarded,
+ * same as any other rejected candidate. See DECISIONS.md D-027.
+ */
+export async function resolveViaPixelragFallback(name: string) {
+  const matches = await pixelragSearch(`${name} company`, 3);
+  for (const match of matches) {
+    const title = wikipediaTitleFromUrl(match.url);
+    if (!title) continue;
+    const qid = await qidFromWikipediaTitle(title);
+    if (!qid) continue;
+    const entity = await resolveCompanyEntityByQid(qid);
+    if (entity) return entity;
+  }
+  return null;
+}
 
 /** Provisional: one source, unchecked. The whole point of on-demand enrichment. */
 const ON_DEMAND_CONFIDENCE: MetadataConfidence = "unverified";
@@ -105,6 +131,18 @@ export async function enrichCompanyOnDemand(
     result.status = "error";
     result.notes.push(`wikidata: ${describeError(err)}`);
     return result;
+  }
+
+  if (!entity) {
+    // Fallback: PixelRAG's fuzzy retrieval over its Wikipedia corpus may find
+    // a candidate Wikidata search missed outright. Still gated by the SAME
+    // business-type verification — see resolveViaPixelragFallback's comment.
+    try {
+      entity = await resolveViaPixelragFallback(name);
+      if (entity) result.notes.push("resolved via pixelrag fallback (name search missed direct match)");
+    } catch (err) {
+      result.notes.push(`pixelrag fallback: ${describeError(err)}`);
+    }
   }
 
   if (!entity) {

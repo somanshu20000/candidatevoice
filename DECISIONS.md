@@ -830,6 +830,87 @@ querying role to access directly, not just what the view projects.
 
 ---
 
+## D-027 · PixelRAG's real scope: a retrieval fallback, not a general acquisition engine — and the company_requests write-path gap it exposed
+
+**Status:** Accepted · 2026-08-17 · `src/lib/external-intel/*`, `src/app/api/company-requests/create`
+
+PixelRAG was required to be a real part of the product, not deferred. Before
+writing any code, its actual hosted capabilities were checked directly
+(`https://github.com/StarTrail-org/PixelRAG`, live-fetched) rather than
+assumed from the name. Finding: it is a visual-retrieval system over a
+**fixed, pre-indexed corpus** (~8.28M Wikipedia pages), hosted at
+`api.pixelrag.ai` with exactly one unauthenticated endpoint, `POST /search`.
+It is **not** a general web crawler and has **no structured-extraction or
+render endpoint on the hosted API** — `pixelshot` (arbitrary-URL rendering)
+and `pixelrag serve` (a custom index) are local-only capabilities of the
+open-source project, never exposed over the network today. This independently
+confirms D-019's original framing ("retriever ≠ extractor," "the bottleneck is
+permission, not parsing") and matches `website-meta.ts`'s own prior comment
+that PixelRAG was already rejected for headless-rendering-shaped company
+enrichment for the same reason.
+
+**What was actually built, in the role PixelRAG can genuinely fill:**
+
+1. **`src/lib/external-intel/pixelrag.ts`** — the one module allowed to call
+   PixelRAG. `pixelragSearch()` is real and wired to the hosted API today.
+   `pixelragRender()` is a documented stub returning `null` (never a
+   fabricated result) unless `PIXELRAG_RENDER_URL` points at a self-hosted
+   instance — there is nothing else it could honestly do against the hosted
+   API.
+2. **Search-fallback name resolution (`enrich.ts`'s
+   `resolveViaPixelragFallback`)** — when Wikidata's own entity search misses
+   (a real, measured failure mode — see wikidata.ts's own comment on Okta/
+   Redis/Sentry-style near-misses), PixelRAG's fuzzy retrieval over its
+   Wikipedia corpus proposes a candidate article. That candidate is resolved
+   to a QID (`external-intel/wikipedia-qid.ts`, via MediaWiki's own
+   `pageprops` API — not PixelRAG) and **must still pass
+   `resolveCompanyEntityByQid`'s existing business-type verification gate**
+   before anything is persisted. PixelRAG proposes; Wikidata's existing gate
+   decides. This is the real, live, testable "unknown company → discover
+   basic identity/metadata" path (Case 2), reusing the on-demand enrichment
+   pipeline that already existed rather than building a second one.
+3. **The Case-1 skeleton (`web-discovery.ts` → `extract.ts` →
+   `seed-pipeline.ts`)** — known company, sparse evidence → discover a
+   *permitted* external source → extract → the EXISTING hiring-intel
+   normalize/validate/moderate pipeline (unmodified). Every stage is real and
+   wired; `discoverPermittedSource` genuinely queries `external_sources` and
+   returns `found:false` today because every registered source still has
+   `acquisition_enabled=false` (Q-2, unchanged by this work). That is the
+   correct, honest output — not a bug to work around. `extractReportsFromSource`
+   is equally honest: even with `PIXELRAG_RENDER_URL` configured, there is no
+   per-source URL-discovery mechanism yet (a source's own search/listing API,
+   never PixelRAG), so it returns `[]` with the specific missing piece named.
+   **This is the human/credential gate the task's own instructions named as
+   an acceptable stopping point** — it is scoped, not silently dropped.
+
+**The company_requests write-path gap this surfaced (was already found and
+designed but unimplemented before this session, from the "still can't search
+naukri.com" investigation):** `company_requests` (migration 0022) had zero
+public write path — the only way to reach `createCompanyRequest` was as a
+side effect of finishing the full hiring-report wizard. **Built:**
+`POST /api/company-requests/create` — rate-limited, duplicate/domain-collision
+pre-checks (`searchOrganizationsRanked` + `findOrganizationByDomain`, the
+exact promote-time checks now also run at creation time) + a pending-request
+dedup check, with best-effort domain auto-fill via the same Wikidata/PixelRAG
+identity lookup (never blocking on failure). `companies/page.tsx`'s
+zero-match state now offers this directly (`AddCompanyRequestForm.tsx`)
+instead of only routing into the full submit wizard. Requests still land as
+`pending`; only M5.1's existing admin promote/merge/reject flow (unchanged)
+turns one into a real organization.
+
+**What PixelRAG must still never do** (unchanged from D-019): write to
+Supabase directly, bypass moderation, decide weight, replace Postgres search
+(D-020), or stand in as the truth layer. Nothing built here crosses that line.
+
+**Revisit when:** (a) a self-hosted PixelRAG render deployment exists — set
+`PIXELRAG_RENDER_URL` and build the per-source URL-discovery step Case 1 still
+needs; (b) Q-2 resolves (a licensed/credentialed source gets
+`acquisition_enabled=true`) — at that point `seed-pipeline.ts` starts actually
+importing rows through the unmodified existing pipeline, with no further
+plumbing required.
+
+---
+
 ## Open questions (decisions *not* yet made)
 
 | # | Question | Blocked on |

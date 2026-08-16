@@ -98,8 +98,11 @@ async function resolveExistingOrganization(supabase: SupabaseClient, slug: strin
 
 /** Secondary collision guard: a real employer's website domain, independent
  *  of what name it was requested under. Best-effort — a query failure here
- *  never blocks promotion; the slug resolve above is the authoritative check. */
-async function findOrganizationByDomain(supabase: SupabaseClient, domain: string): Promise<string | null> {
+ *  never blocks promotion; the slug resolve above is the authoritative check.
+ *  Exported so the request-CREATION path (api/company-requests/create) can
+ *  run the identical domain check before a request is even queued, not just
+ *  at promote time. */
+export async function findOrganizationByDomain(supabase: SupabaseClient, domain: string): Promise<string | null> {
   const normalized = domain
     .trim()
     .toLowerCase()

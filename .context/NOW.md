@@ -1,6 +1,6 @@
 # NOW — CandidateVoice project state
 
-**Last updated:** 2026-08-16 (session-end handoff snapshot — read this section first, in full, before touching code).
+**Last updated:** 2026-08-17 (session-end handoff snapshot — read this section first, in full, before touching code).
 
 `.context/CONTEXT.md` does not exist in this repo (confirmed repeatedly across
 sessions) — this file (`NOW.md`) plus `DECISIONS.md` are the complete project
@@ -13,15 +13,47 @@ this section.
 ## SESSION-BOOT SNAPSHOT
 
 ### Current milestone
-Between the V-roadmap (V0–V3, mostly shipped) and a newly-identified,
-**not-yet-built** product gap: strangers cannot request a company that isn't
-in the directory from the main search — only from deep inside the `/submit`
-wizard. This was reported by the user mid-session (searching "naukri.com"),
-investigated, root-caused, but **zero code was written for the fix** — the
-session ended at the investigation stage. See "Exact next task" below for the
-precise, already-designed fix to implement.
+The "add this company" gap (previous session's investigation) is now BUILT,
+tested, and verified — see below. This session's main task was PixelRAG
+(explicitly required, not deferrable): it was scoped against PixelRAG's real,
+directly-verified capabilities (a Wikipedia-corpus retrieval API, not a
+general crawler/extractor) and built into the two roles it can honestly fill.
+See D-027 for the full reasoning. Next open item is Case 1's remaining
+credential/permission gate (Q-2) and, separately, the still-untouched
+`VERIFICATION_SECRET` human blocker (V0.3) — neither was retried this
+session per standing instruction.
 
-### What is COMPLETE (this session and prior)
+### What is COMPLETE (this session)
+- **"Add this company" fix (message-I gap, now built)** — `POST
+  /api/company-requests/create` (rate-limited, duplicate/domain-collision
+  pre-checks reusing M5.1's exact promote-time logic, pending-request dedup,
+  best-effort domain auto-fill). `companies/page.tsx`'s zero-match state now
+  renders `AddCompanyRequestForm.tsx` directly instead of only linking into
+  the full `/submit` wizard. Live-verified in the local dev preview (against
+  the SAME Supabase project production uses — confirmed via seeing the real
+  QA-org row in the directory listing, so **no test submission was clicked
+  through** past the point of confirming the empty-state UI renders
+  correctly, to avoid writing stray data into the real
+  `company_requests` queue). tsc/tests/build all green.
+- **PixelRAG integration (D-027)** — `src/lib/external-intel/{pixelrag,
+  wikipedia-qid, web-discovery, extract, seed-pipeline}.ts`:
+  - `pixelragSearch()` — real, wired to the hosted `api.pixelrag.ai/search`.
+  - Wired into `enrich.ts` as a fallback name-resolution step when Wikidata's
+    own search misses — PixelRAG only ever proposes a candidate; Wikidata's
+    existing `resolveCompanyEntityByQid` business-type gate still decides.
+  - Case-1 skeleton (known company, sparse evidence → external source):
+    `discoverPermittedSource` genuinely queries `external_sources` (still
+    correctly returns "none permitted" — Q-2 unchanged); `extractReportsFromSource`
+    is an honest stub (PIXELRAG_RENDER_URL unset by default — the hosted API
+    has no render endpoint); `seed-pipeline.ts` orchestrates into the
+    EXISTING hiring-intel import pipeline, unmodified.
+  - `.env.example` documents `PIXELRAG_API_URL` / `PIXELRAG_API_KEY` /
+    `PIXELRAG_RENDER_URL` — exactly where real credentials/self-hosting go.
+  - 33 new tests (pixelrag, wikipedia-qid, web-discovery, extract,
+    seed-pipeline, enrich fallback composition), all green. tsc/vitest(760
+    total)/build all clean.
+
+### What is COMPLETE (prior sessions)
 - **M5.2a / M5.3** — verification envelope (grant/consume/submit wiring),
   migrations 0027–0028. Built, tested, committed (`ed3cde2`).
 - **M5.4** — migrations 0025–0028 applied to production (0025/0026 were also
@@ -52,71 +84,10 @@ precise, already-designed fix to implement.
   RPC for `'naukri.com'` correctly returns zero rows because Naukri/Info Edge
   has never been added to `organizations`. Search itself works.
 
-### What is IN PROGRESS (investigated, NOT implemented — do this next)
-**The actual product gap the "naukri.com" report surfaced**, per the user's
-explicit follow-up instruction to fix it. Root-caused, not yet built:
-
-1. **`company_requests` has ZERO anon/authenticated RLS policy** — see
-   migration `0022` lines ~172–175: *"Deliberately no anon/authenticated
-   policy of any kind: every access — insert from the submit route, list/
-   approve/reject from admin — goes through the service-role client."* There
-   is **no public write path to this table at all** today except as a
-   side-effect of the full `/api/submit` hiring-report route.
-2. **The main search's empty state routes to the wrong place.** Both
-   `src/app/companies/page.tsx`'s `EmptyState` (query-with-zero-matches path)
-   and `src/components/CompanySearch.tsx`'s no-results fallback link to
-   `/submit?company=<query>` — the ENTIRE multi-step hiring-REPORT wizard. A
-   stranger who only wants to flag "this company should be added" is currently
-   forced to navigate a form built for reporting an interview experience, and
-   the actual "isn't listed" → `company_requests` write only happens **deep
-   inside that wizard's `CompanyPicker`** (`src/app/submit/page.tsx`,
-   `createCompanyRequest` in `src/lib/company-intelligence/resolve.ts:115`).
-   That path already works correctly for candidates already in the wizard —
-   it is NOT being replaced, only supplemented.
-3. **What already exists and should be reused, not rebuilt:**
-   - `createCompanyRequest(supabase, {requestedName, requestedDomain,
-     requesterNote})` — `src/lib/company-intelligence/resolve.ts:115` — already
-     does the insert. Currently only called from `/api/submit`'s server-side
-     admin client.
-   - `src/lib/company-intelligence/requests.ts` — the FULL admin
-     promote/merge/reject flow (M5.1), already complete, needs zero changes.
-     `promoteCompanyRequest` already has D-009 duplicate/domain-collision
-     re-verification **at promote time** (re-resolves slug via
-     `resolve_organization`, checks `company_links.normalized_domain`).
-   - `checkAndRecordRateLimit` (`src/lib/rate-limit.ts`) — the existing
-     rate-limit pattern already used by `/api/submit` and `/api/verify/grant`.
-   - `company_requests` table schema (migration `0022`) already has every
-     column needed: `requested_name`, `requested_domain`, `requester_note`.
-
-**The smallest complete fix (designed, not built):**
-- **New public API route**, e.g. `POST /api/company-requests/create` — rate-
-  limited (reuse `checkAndRecordRateLimit`), server-side using
-  `createAdminClient()` (the anon key must never touch `company_requests`
-  directly — matches the table's own "deliberately no anon policy" design).
-  Accepts `{name, domain?, note?}`. **Before inserting**, run the SAME class
-  of duplicate/collision check `promoteCompanyRequest` already does, but at
-  REQUEST time instead of promote time: (a) does the name already resolve to
-  a real organization (`resolve_organization` RPC) — if so, tell the caller
-  it's already listed, point them at it, don't create a request; (b) does the
-  domain already belong to an organization (`company_links.normalized_domain`)
-  — same treatment; (c) does a `pending` request already exist for a
-  near-identical name/domain — if so, don't create a duplicate pending row
-  (either no-op with a friendly "already requested, awaiting review" message,
-  or skip silently — decide which reads more honest before building). This is
-  D-009/D-021's own reasoning, just applied one lifecycle stage earlier.
-- **UI**: replace the `/submit?company=` redirect in `CompanySearch.tsx`'s and
-  `companies/page.tsx`'s empty/no-match states with a small, direct "Add this
-  company" affordance (name pre-filled from the query, optional domain/note
-  fields) that posts to the new route — NOT the full wizard. Keep `/submit`'s
-  own "isn't listed" path unchanged for people already in that flow.
-- **Once promoted**, no further work is needed — `searchCompanies`/
-  `search_organizations_ranked` query `organizations` directly, so a promoted
-  company is immediately searchable (requirement 6 in the original ask is
-  already satisfied by the existing M5.1 promote path).
-- **Tests to add**: unit tests for the new route's duplicate/collision
-  pre-check (mirroring `tests/company-requests.test.ts`'s existing fake-
-  Supabase-client convention), and a UI-level check that the empty state now
-  offers the lightweight flow rather than linking to `/submit`.
+### What is IN PROGRESS
+Nothing mid-implementation. The two open threads are both genuine external
+gates, documented below under BLOCKED and in D-027's "Revisit when" clause —
+not partial code.
 
 ### What is BLOCKED (human-owned, do not retry without new information)
 **M5.5 · V0.3 — the live HTTP verification QA flow.** `VERIFICATION_SECRET`
@@ -145,11 +116,17 @@ for a low-cost first check, but the authoritative signal is always a real
 `POST /api/verify/grant` returning `200 + token` — never inferred from
 anything else.
 
-**Also human, untouched by rule (unchanged from earlier in the session):**
+**Also human, untouched by rule:**
 - **V1.2** — 5 real, pending `hiring_submissions` rows in production, never
   approved/rejected — a genuine moderation decision, not touched.
 - **V2.1 / V2.2** — dogfooding one real candidate and one real employee report
   once V1.1's leak-close (done) makes it safe to do so.
+- **Q-2 (D-027's Case-1 gate)** — no external source has `acquisition_enabled
+  =true`; `seed-pipeline.ts` correctly does nothing until a licensed/
+  credentialed source is chosen. Not a code gap — see D-027's "Revisit when."
+- **PixelRAG self-hosted rendering** — `PIXELRAG_RENDER_URL` is unset
+  everywhere (documented in `.env.example`); `pixelragRender()` stays a
+  stub until a self-hosted `pixelrag serve` instance exists to point it at.
 
 ### Production state
 - **Migrations 0000–0029 all applied** (confirmed via `list_migrations` this
@@ -167,10 +144,15 @@ anything else.
   has zero submissions attached (the last QA test row was rejected and
   removed from public view in M5.4).
 - **No production evidence data has been fabricated, approved, or rejected**
-  by any automated action this entire session.
+  by any automated action this entire session. **No `company_requests` row
+  was created either** — the new route's UI was verified to render correctly
+  against the real (only) Supabase project, then testing stopped short of
+  clicking submit, specifically to avoid writing stray queue data (confirmed
+  via `read_network_requests` that no POST fired).
 
 ### Latest commits (main, all pushed to `origin`)
 ```
+(this session's commit — PixelRAG integration + company-requests route, see git log)
 52f3d9f docs: V0.3 4th attempt - staleness ruled out, genuine save issue confirmed
 a0e64f7 docs: V0.3 4th re-check + naukri.com search non-bug investigation
 f8fa3af V0.2/V2.3/V3.1/V3.2: the safely-buildable remainder of the roadmap
@@ -200,21 +182,20 @@ uncommitted.
 | V2.3 (privacy copy) | ✅ done |
 | V3.1 (evidence-readiness metric) | ✅ done |
 | V3.2 (document deferrals) | ✅ done, D-025 |
-| **"Add this company" gap** (this session, new) | **DESIGNED, not built — see below** |
+| "Add this company" gap | ✅ done, this session |
+| PixelRAG integration (search fallback + Case-1 skeleton) | ✅ done, D-027 |
+| Case 1 live data (external evidence via PixelRAG) | **BLOCKED on Q-2** (no licensed source) |
 | M6 (external acquisition) | Gated on evidence target + Q-2 + vendor/legal (D-025) — none met |
 
 ### Exact next task
-Implement **"the smallest complete fix"** described in full under IN PROGRESS
-above: a rate-limited `POST /api/company-requests/create` route (server-side
-admin client, reusing `createCompanyRequest`) with request-time duplicate/
-domain-collision pre-checks, plus a lightweight "Add this company" UI
-affordance replacing the `/submit?company=` redirect in `CompanySearch.tsx`
-and `companies/page.tsx`'s empty states. Then: `npx tsc --noEmit` · `npx
-vitest run` (currently 727 tests, expect new ones for the route) · `npm run
-build` · live verification of existing search (Razorpay/Zoho), typo search,
-substring search, the new add/request flow end-to-end, and duplicate
-protection — then commit + push. Do not touch `VERIFICATION_SECRET`/M5.5
-while doing this (unrelated, human-blocked). Do not start M6.
+No safely-buildable engineering task remains queued. The two live options are
+both human-owned: **V0.1** (set `VERIFICATION_SECRET` as a Production-scoped
+Vercel var — do not retry-deploy to test this without new information, per
+standing instruction) or **Q-2** (choose and credential a licensed/permitted
+external source, which unblocks `seed-pipeline.ts`'s Case-1 import with zero
+further plumbing). If neither is resolved, the next session should re-read
+this file, confirm nothing has changed, and ask the user which human gate to
+pursue rather than inventing new scope.
 
 ---
 
