@@ -3,6 +3,25 @@
 **Current phase:** V0.2 / V2.3 / V3.1 / V3.2 shipped. M5.5·V0.3 (live HTTP QA) **BLOCKED** on the `VERIFICATION_SECRET` save; V1.2 + dogfood are **HUMAN**.
 **Last updated:** 2026-08-16.
 
+## V0.3 re-check (4th attempt on the secret)
+
+Told the secret was configured and redeployed again. `list_deployments` showed
+no new deployment past this session's own `f8fa3af` push (V0.2/V2.3/V3.1/V3.2)
+— same "save didn't reach a build yet" pattern as three earlier attempts.
+Pushing this doc update to trigger a fresh build (routine, pre-authorized),
+then re-checking `POST /api/verify/grant` for a positive `200 + token` before
+running V0.3. If it's still `500` after a genuinely new deployment, the
+secret itself is not saved as Production-scoped — the same conclusion as the
+prior attempts, not a new finding.
+
+Unrelated, reported by the user mid-session: `naukri.com` returns "no company
+matches" on `/companies`. Verified live — NOT a search bug. `zoho` resolves
+correctly via `search_organizations_ranked`; Naukri/Info Edge simply has never
+been added to `organizations`. Correct empty-state behavior (CI-4 design). No
+code change made. If Naukri should be seeded, that's a human/product call
+(direct seed vs. the existing "company isn't listed" → `company_requests`
+moderation queue, M5.1) — not touched this pass.
+
 ## This pass — the buildable remainder of the roadmap (V0.2, V2.3, V3.1, V3.2)
 
 Worked the roadmap end-to-end, doing every task that can be completed safely
