@@ -1,18 +1,18 @@
 # NOW — CandidateVoice project state
 
-**Last updated:** 2026-08-17, 2nd pass (audit — read this section first, in full, before touching code).
+**Last updated:** 2026-08-17, 3rd pass (Reddit pilot built — read this section first, in full, before touching code).
 
-**⚠ URGENT, unrelated to any code in this repo:** a same-day audit
-(`docs/q2-source-acquisition-plan.md` §0) found production's
+**⚠ STILL URGENT, unrelated to the Reddit work below:** production's
 `external_sources.acquisition_enabled` is `true` for `glassdoor` /
 `ambitionbox` / `linkedin` — never set by any committed migration, and
 contradicting D-005 ("never crawl LinkedIn") plus those sources' own recorded
 `proprietary-no-redistribution` license. **No harm done yet** (0 rows exist in
-`external_reports` for any source, and nothing in this codebase currently acts
-on that column besides read-only gating). **Needs a human decision before any
-further Q-2/M6 work**: confirm whether this was ever a deliberate, licensed
-choice, or authorize reverting it (`docs/q2-source-acquisition-plan.md` §0 has
-the exact one-line `UPDATE`, not run).
+`external_reports` for any of those three, and nothing in this codebase
+currently acts on that column besides read-only gating). **Needs a human
+decision**: confirm whether this was ever a deliberate, licensed choice, or
+authorize reverting it (`docs/q2-source-acquisition-plan.md` §0 has the exact
+one-line `UPDATE`, not run). Not touched this pass either — out of scope for
+the Reddit-only task that was authorized.
 
 `.context/CONTEXT.md` does not exist in this repo (confirmed repeatedly across
 sessions) — this file (`NOW.md`) plus `DECISIONS.md` are the complete project
@@ -25,17 +25,37 @@ this section.
 ## SESSION-BOOT SNAPSHOT
 
 ### Current milestone
-The "add this company" gap (previous session's investigation) is now BUILT,
-tested, and verified — see below. This session's main task was PixelRAG
-(explicitly required, not deferrable): it was scoped against PixelRAG's real,
-directly-verified capabilities (a Wikipedia-corpus retrieval API, not a
-general crawler/extractor) and built into the two roles it can honestly fill.
-See D-027 for the full reasoning. Next open item is Case 1's remaining
-credential/permission gate (Q-2) and, separately, the still-untouched
-`VERIFICATION_SECRET` human blocker (V0.3) — neither was retried this
-session per standing instruction.
+Q-2's Reddit pilot is now **fully built, live-verified, and merged** (D-028)
+— the complete acquisition→provenance→validation→moderation→
+external_reports→Evidence Engine path works end to end, proven against
+production with a real (QA-isolated, cleaned-up) write. **The only remaining
+gap is a real Reddit credential** — positively checked, not assumed
+(`.env.local`'s current values are 3-char placeholders; Reddit returns 401).
+Zero real Reddit data has been acquired. See D-028 for the full build.
 
-### What is COMPLETE (this session)
+### What is COMPLETE (this pass — Reddit pilot, D-028)
+- **`scripts/reddit_ingest.py` hardened**: `--check-credentials` (one real
+  authenticated call, fails fast, never fabricates output), retry-with-
+  backoff per query for transient failures, auth failures abort immediately
+  and never write a JSONL.
+- **Migration `0030`** — `qa_external_verification` source,
+  `enabled=false` permanently (applied via Supabase MCP's proper
+  `apply_migration`, not the direct-then-backfill pattern flagged twice
+  before).
+- **`scripts/qa-verify-external-pipeline.ts`** — real
+  import→approve→confirm-never-public→reject→delete cycle using the actual
+  application functions (`runExternalImport`, `moderateExternalReport`), run
+  live against production during this pass: **passed cleanly, count returned
+  to baseline (0 → 1 → 0)**.
+- **`tests/reddit-pilot.test.ts`** (10 new tests) — Reddit-shaped fixtures
+  through the real normalize/import core, plus weighting pinned to the real
+  production numbers (trust 0.30 × global multiplier 0.35).
+- **Docs**: `docs/hiring-intelligence.md` gained explicit "why PixelRAG is
+  not part of Reddit acquisition" + QA-verification sections. `DECISIONS.md`
+  D-028.
+- tsc/vitest/build all green (see gate below).
+
+### What is COMPLETE (prior sessions)
 - **"Add this company" fix (message-I gap, now built)** — `POST
   /api/company-requests/create` (rate-limited, duplicate/domain-collision
   pre-checks reusing M5.1's exact promote-time logic, pending-request dedup,
@@ -198,19 +218,29 @@ uncommitted.
 | PixelRAG integration (search fallback + Case-1 skeleton) | ✅ done, D-027 |
 | Case 1 live data (external evidence via PixelRAG) | **BLOCKED on Q-2** (no licensed source) |
 | M6 (external acquisition) | Gated on evidence target + Q-2 + vendor/legal (D-025) — none met |
-| Q-2 audit + acquisition plan | ✅ done, this pass — `docs/q2-source-acquisition-plan.md` |
+| Q-2 audit + acquisition plan | ✅ done — `docs/q2-source-acquisition-plan.md` |
+| Q-2 Reddit pilot — pipeline build + QA verification | ✅ done, this pass — D-028 |
+| Q-2 Reddit pilot — real credential + real data | **BLOCKED, HUMAN** — see below |
 | `acquisition_enabled` drift (glassdoor/ambitionbox/linkedin) | **URGENT, HUMAN** — see top of this file |
 
 ### Exact next task
-Three human-owned items, no more engineering to do until one is resolved:
-1. **(Most urgent)** Decide on the `acquisition_enabled` drift — confirm or
-   revert (see top of this file / `docs/q2-source-acquisition-plan.md` §0).
+Three human-owned items, no more engineering to do until one is resolved —
+**the Reddit pipeline itself needs no further building**, only a credential:
+1. **(Most urgent, unrelated to Reddit)** Decide on the `acquisition_enabled`
+   drift — confirm or revert (see top of this file /
+   `docs/q2-source-acquisition-plan.md` §0).
 2. **V0.1** — set `VERIFICATION_SECRET` as a Production-scoped Vercel var (do
    not retry-deploy to test this without new information, per standing
    instruction).
-3. **Q-2** — register a free Reddit API credential
-   (`REDDIT_CLIENT_ID`/`REDDIT_CLIENT_SECRET`) to run the recommended pilot;
-   full plan and pipeline mapping in `docs/q2-source-acquisition-plan.md`.
+3. **Q-2 → real Reddit data** — register a free Reddit "script" app
+   (reddit.com/prefs/apps) and set real
+   `REDDIT_CLIENT_ID`/`REDDIT_CLIENT_SECRET`/`REDDIT_USER_AGENT`. Then:
+   `python scripts/reddit_ingest.py --check-credentials` (expect `Credential
+   check OK`) → a small real harvest → `npm run external:import -- <file>
+   --source reddit --dry-run` → real import → **human review in the
+   moderation queue** (approving real third-party content is not automated,
+   matching V1.2's precedent). Full detail in D-028 and
+   `docs/q2-source-acquisition-plan.md`.
 If none is resolved, the next session should re-read this file, confirm
 nothing has changed, and ask which to pursue rather than inventing new scope.
 

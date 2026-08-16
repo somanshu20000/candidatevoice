@@ -911,12 +911,102 @@ plumbing required.
 
 ---
 
+## D-028 · Reddit acquisition pilot built end-to-end; credential is the only remaining gate
+
+**Status:** Accepted · 2026-08-17 · `scripts/reddit_ingest.py`,
+`scripts/qa-verify-external-pipeline.ts`,
+`supabase/migrations/0030_qa_external_source.sql`, `tests/reddit-pilot.test.ts`
+
+Following `docs/q2-source-acquisition-plan.md`'s recommendation (§5), the user
+authorized Reddit as Q-2's first pilot source. This decision records what was
+built and, critically, that **the pipeline is complete and proven; only a
+real credential is missing** — nothing here should be read as "Reddit data is
+now flowing," because it is not.
+
+**What changed, concretely:**
+1. **`reddit_ingest.py` hardened**, not rebuilt — the adapter (PRAW, official
+   API, structured-fields-only contract) already existed and was already
+   sound. Added: a `--check-credentials` flag that makes ONE real
+   authenticated call and exits, so a bad credential is caught in seconds
+   instead of after a full harvest; retry-with-backoff per search query for
+   TRANSIENT failures (network/5xx), with auth failures (401/403) never
+   retried — retrying a wrong client id/secret cannot succeed and only
+   delays a clear failure message. The full run now calls
+   `check_credentials()` before `harvest()` and refuses to write ANY output
+   file on a credential failure — never a silent empty/stub JSONL that could
+   be mistaken for "ran successfully, found nothing."
+2. **Migration `0030`** adds a QA-only external source
+   (`qa_external_verification`), `enabled=false` **permanently** (unlike
+   `reddit`, which is disabled only until reviewed) — a row attributed to it
+   can never reach `public_external_reports` regardless of moderation
+   status, by the same WHERE clause every other source's publication already
+   goes through. Applied via the Supabase MCP's `apply_migration` (the
+   correct, committed path — not the "direct then backfill" pattern already
+   flagged twice in this codebase's history).
+3. **`scripts/qa-verify-external-pipeline.ts`** — the external-reports
+   analogue of M5.4's QA-org verification. Runs the REAL
+   `runExternalImport()` and `moderateExternalReport()` (no reimplemented
+   logic) against the QA source and the existing QA organization
+   (`m54-qa-verification-test`, D-024, matched via exact slug —
+   `normalizeCompanySlug("M54 QA Verification Test")` ===
+   `"m54-qa-verification-test"`), then asserts `public_external_reports`
+   shows zero rows for that source even after approval, then rejects and
+   deletes, then asserts the count returns to baseline. **Run live against
+   production during this task — passed on the first run**, every assertion
+   green (import 1 created → approved → 0 public rows → cleaned up → count
+   back to 0).
+4. **`tests/reddit-pilot.test.ts`** — Reddit-shaped fixtures (matching
+   `reddit_ingest.py`'s exact emitted contract: `external_ref="t3_…"`,
+   `extraction_version="reddit-v1"`, the adapter's real 0.3–0.85 confidence
+   range) through the unmodified `normalize`/`import` core, plus a weighting
+   test pinned to the REAL production values
+   (`external_sources.trust_weight('reddit')=0.30`,
+   `platform_settings.global_external_multiplier=0.35`, both read live during
+   this task) proving an approved Reddit report at maximum extraction
+   confidence still weighs `0.3 × 0.85 × 1 × 0.35 ≈ 0.089` — far below a
+   first-party report's `1.0`, and exactly `0` while `pending`.
+
+**PixelRAG's role: none, and this is now documented explicitly**
+(`docs/hiring-intelligence.md` "Why PixelRAG is not part of Reddit
+acquisition"). Reddit's official API returns structured JSON directly; there
+is nothing to render. PixelRAG's real role (D-027) remains identity-fallback
+in `enrich.ts` and the stubbed Case-1 render step for a *future* source that
+has no API. Nothing built for this pilot touches `external-intel/pixelrag.ts`.
+
+**Credential status — checked, not assumed.** `.env.local`'s
+`REDDIT_CLIENT_ID`/`REDDIT_CLIENT_SECRET` were positively verified against
+the real Reddit API (a forced network round-trip, not an inference from
+their being merely present): both are 3-character placeholder values, and
+the real API returns `401`. **No real Reddit data has been acquired.**
+`live evidence count for real Reddit content: 0 before, 0 after` — the only
+non-zero counts from this task are the QA fixture's transient
+import→approve→delete cycle described in point 3, never real content.
+
+**What remains before real data flows:** a human registers a Reddit "script"
+app (free, reddit.com/prefs/apps) and sets
+`REDDIT_CLIENT_ID`/`REDDIT_CLIENT_SECRET`/`REDDIT_USER_AGENT` as real
+values. Then: `python scripts/reddit_ingest.py --check-credentials` (expect
+`Credential check OK`) → a small real harvest → `npm run external:import --
+… --source reddit --dry-run` → the real import → moderation queue review.
+None of that is run by this decision or by any automated process — approving
+real third-party content about real companies is a human moderation
+decision, matching the precedent already set for `hiring_submissions`
+(V1.2) and never crossed here.
+
+**Unrelated, still unresolved (carried forward from D-027's audit, not
+touched by this task):** production's `external_sources.acquisition_enabled`
+remains `true` for `glassdoor`/`ambitionbox`/`linkedin` — still needs the
+human confirm-or-revert decision `docs/q2-source-acquisition-plan.md` §0
+describes.
+
+---
+
 ## Open questions (decisions *not* yet made)
 
 | # | Question | Blocked on |
 |---|---|---|
 | Q-1 | How do companies authenticate to post HR updates? | **Designed** (D-017, `docs/design-hr-authentication.md`), **not built**. Implementing it is the remaining blocker on roadmap items 6 & 8. |
-| Q-2 | Where does genuine external seed data come from? | **See `docs/q2-source-acquisition-plan.md` (2026-08-17 audit + plan).** Recommended pilot: Reddit, needs only free `REDDIT_CLIENT_ID`/`REDDIT_CLIENT_SECRET` credentials, zero new code. **Urgent, separate finding in that doc:** production's `external_sources.acquisition_enabled` is currently `true` for `glassdoor`/`ambitionbox`/`linkedin` — contradicting D-005 and their own recorded `proprietary-no-redistribution` license — and was never set by any committed migration or decision. Needs a human confirm-or-revert decision before Q-2 work proceeds. |
+| Q-2 | Where does genuine external seed data come from? | **Pilot pipeline fully built and live-verified (D-028).** Reddit is the resolved pilot source; `reddit_ingest.py` + the existing hiring-intel core are proven end-to-end via `scripts/qa-verify-external-pipeline.ts`. **Only remaining blocker: a real `REDDIT_CLIENT_ID`/`REDDIT_CLIENT_SECRET`** (checked live — current `.env.local` values are 3-char placeholders, Reddit returns 401). Zero real Reddit content has been acquired. **Unrelated, still unresolved:** production's `external_sources.acquisition_enabled` is `true` for `glassdoor`/`ambitionbox`/`linkedin` — contradicts D-005 and their own recorded license — needs a human confirm-or-revert decision (`docs/q2-source-acquisition-plan.md` §0). |
 | Q-3 | Do timeline events ever feed HQS? | Deliberately **not** wired today (D-016 reaffirms). Needs its own decision — events are perception-heavy and would change what HQS means. |
 | Q-4 | Who runs staleness when nobody loads the page? | No scheduler exists (D-012). |
 | Q-5 | Should `public_hiring_opportunities.first_observed_at` be coarsened? | Exact timestamp is an n=1 correlation vector for single-report opportunities (flagged in D-016). Schema change, out of scope for the analytics task that found it. |

@@ -26,12 +26,24 @@ WHAT IT STORES — AND DELIBERATELY DOES NOT
     nowhere to put them.
 
 ENV (.env.local): REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT
+Never hardcode credentials here — this file reads them from the environment
+only, and a placeholder/invalid value fails loudly via --check-credentials
+rather than being silently treated as "configured".
+
+RATE LIMITING AND RETRIES
+    PRAW's own OAuth layer already backs off on Reddit's rate-limit headers.
+    On top of that, each search query below is retried with exponential
+    backoff (RETRY_ATTEMPTS, RETRY_BASE_DELAY_S) for TRANSIENT failures only
+    (network errors, 5xx, PRAW's ServerError) — an AUTH failure
+    (401/403/OAuthException) is never retried, since retrying a bad
+    credential just wastes calls and delays a clear failure message.
 """
 
 import os
 import re
 import sys
 import json
+import time
 import logging
 import argparse
 from datetime import datetime, timezone
@@ -48,6 +60,13 @@ logger = logging.getLogger(__name__)
 # Bump when the extraction logic below changes, so rows can be traced to the
 # exact extractor that produced them and re-extracted selectively.
 EXTRACTION_VERSION = "reddit-v1"
+
+# Retry policy for a single search query. Kept small and fast: this is a
+# cold-start bootstrap script run by a human, not a background daemon — a
+# query that still fails after 3 tries is logged and skipped (harvest()
+# already isolates one bad query from the rest), not retried forever.
+RETRY_ATTEMPTS = 3
+RETRY_BASE_DELAY_S = 2.0
 
 DEFAULT_SUBREDDITS = [
     "cscareerquestions", "ExperiencedDevs", "indiajobs",
@@ -160,10 +179,16 @@ def payment_flag(text: str) -> Optional[bool]:
     return None  # absence of evidence is not evidence of absence — leave unknown
 
 
+class RedditCredentialError(Exception):
+    """Raised only for auth failures (bad/placeholder credentials) — never
+    retried, since retrying a wrong client id/secret cannot succeed."""
+
+
 class RedditAdapter:
     def __init__(self):
         try:
             import praw
+            self._praw = praw
         except ImportError:
             logger.error("praw not installed. Run: pip install -r scripts/requirements.txt")
             sys.exit(1)
@@ -175,13 +200,50 @@ class RedditAdapter:
         self.reddit = praw.Reddit(client_id=cid, client_secret=csec, user_agent=ua)
         self.reddit.read_only = True
 
+    def check_credentials(self) -> None:
+        """Positive verification, not inference: force one real OAuth round
+        trip before any harvest runs. `.display_name` on a lazy Subreddit
+        object is set from the constructor argument alone and proves
+        nothing — iterating a listing forces the actual token request."""
+        try:
+            next(self.reddit.subreddit("test").hot(limit=1))
+        except Exception as e:
+            raise RedditCredentialError(f"{type(e).__name__}: {e}") from e
+
+    def _is_auth_error(self, err: Exception) -> bool:
+        # prawcore raises ResponseException for HTTP-level failures; 401/403
+        # mean the credential itself is wrong, not a transient condition.
+        status = getattr(getattr(err, "response", None), "status_code", None)
+        return status in (401, 403)
+
+    def _search_with_retry(self, joined_subreddits: str, query: str, limit: int):
+        """One query, retried with exponential backoff for TRANSIENT
+        failures only. An auth failure raises immediately — see module
+        docstring."""
+        last_err: Optional[Exception] = None
+        for attempt in range(1, RETRY_ATTEMPTS + 1):
+            try:
+                return list(
+                    self.reddit.subreddit(joined_subreddits).search(query, sort="relevance", time_filter="year", limit=limit)
+                )
+            except Exception as e:  # noqa: BLE001 — classified below, not swallowed
+                if self._is_auth_error(e):
+                    raise RedditCredentialError(f"{type(e).__name__}: {e}") from e
+                last_err = e
+                if attempt < RETRY_ATTEMPTS:
+                    delay = RETRY_BASE_DELAY_S * (2 ** (attempt - 1))
+                    logger.warning("  query %r attempt %d/%d failed (%s), retrying in %.1fs", query, attempt, RETRY_ATTEMPTS, e, delay)
+                    time.sleep(delay)
+        raise last_err  # exhausted retries — let harvest()'s own try/except log and skip this query
+
     def harvest(self, subreddits, limit=100):
         seen, records = set(), []
         joined = "+".join(subreddits)
         logger.info("Searching r/%s via the official API…", joined)
         for query in SEARCH_QUERIES:
             try:
-                for post in self.reddit.subreddit(joined).search(query, sort="relevance", time_filter="year", limit=limit):
+                posts = self._search_with_retry(joined, query, limit)
+                for post in posts:
                     if post.id in seen:
                         continue
                     seen.add(post.id)
@@ -193,8 +255,10 @@ class RedditAdapter:
                     if record:
                         records.append(record)
                 logger.info("  query %r: %d kept so far", query, len(records))
+            except RedditCredentialError:
+                raise  # never continue past an auth failure — nothing downstream can succeed
             except Exception as e:  # noqa: BLE001 — one bad query must not abort the run
-                logger.warning("  query %r failed: %s", query, e)
+                logger.warning("  query %r failed after retries: %s", query, e)
         return records
 
     def _to_record(self, post, text) -> Optional[dict]:
@@ -258,7 +322,25 @@ def main():
     ap.add_argument("--all-subreddits", action="store_true")
     ap.add_argument("--limit", type=int, default=100, help="results per search query")
     ap.add_argument("--output", type=Path, default=default_out)
+    ap.add_argument(
+        "--check-credentials",
+        action="store_true",
+        help="verify REDDIT_CLIENT_ID/SECRET against the real API and exit — makes ONE authenticated call, writes nothing, harvests nothing",
+    )
     args = ap.parse_args()
+
+    if args.check_credentials:
+        try:
+            adapter = RedditAdapter()
+            adapter.check_credentials()
+        except RedditCredentialError as e:
+            logger.error("Credential check FAILED — Reddit rejected the credential: %s", e)
+            sys.exit(1)
+        except Exception as e:  # noqa: BLE001 — e.g. REDDIT_CLIENT_ID unset
+            logger.error("Credential check FAILED — %s", e)
+            sys.exit(1)
+        logger.info("Credential check OK — REDDIT_CLIENT_ID/SECRET authenticated against the real Reddit API.")
+        sys.exit(0)
 
     subs = args.subreddit or (DEFAULT_SUBREDDITS if args.all_subreddits else None)
     if not subs:
@@ -267,6 +349,11 @@ def main():
 
     try:
         adapter = RedditAdapter()
+        adapter.check_credentials()
+    except RedditCredentialError as e:
+        logger.error("Credentials rejected by Reddit — refusing to run (never falls back to fabricated output): %s", e)
+        logger.error("Run with --check-credentials for a fast, isolated check. See .env.example for how to obtain real ones.")
+        sys.exit(1)
     except Exception as e:  # noqa: BLE001
         logger.error("Init failed: %s", e)
         sys.exit(1)

@@ -87,6 +87,10 @@ optional extracted facts drawn from the same closed vocabularies as
 ## Commands
 
 ```bash
+# 0. Verify credentials against the REAL Reddit API before running anything
+#    else — makes ONE authenticated call, writes nothing, harvests nothing.
+python scripts/reddit_ingest.py --check-credentials
+
 # 1. Acquire (does NOT touch the database) — needs REDDIT_* in .env.local
 python scripts/reddit_ingest.py --all-subreddits --limit 100
 
@@ -97,8 +101,53 @@ npm run external:import -- Data/external/reddit.jsonl --source reddit
 # 3. Approve in moderation, and enable the source, before anything is public.
 ```
 
+`reddit_ingest.py` refuses to run the full harvest — never proceeding to
+produce a JSONL that could be mistaken for "ran, found nothing" — if the
+credential check fails first. Each search query is retried with exponential
+backoff for transient failures only; an auth failure (401/403) is never
+retried and aborts the run immediately (see the script's own module
+docstring for the exact policy).
+
 Nothing an importer writes is visible until **both** the row is approved and the
 source is enabled (`reddit` ships disabled).
+
+## Why PixelRAG is not part of Reddit acquisition
+
+CandidateVoice also has a PixelRAG-based adapter (`src/lib/external-intel/`,
+DECISIONS.md D-027) for a *different, future* kind of source: one with no
+official structured API, where reading its content means rendering a
+JS-heavy webpage. **Reddit needs none of that.** Its official Data API
+(PRAW, used here) returns structured JSON directly — there is no page to
+render, no visual content to interpret. `scripts/reddit_ingest.py` never
+imports or calls anything from `external-intel/pixelrag.ts`, by design, not
+by oversight.
+
+The general rule this pilot establishes: **PixelRAG is for the render step
+of a source that has no API — never a substitute for a source's own official
+API when one exists.** A future source without an API and requiring
+JS-rendered pages (see `docs/q2-source-acquisition-plan.md` §2 for the
+"official structured API" vs. "webpage/visual" source-type split) would use
+`external-intel/web-discovery.ts` → `extract.ts`'s PixelRAG-backed skeleton
+instead of this file's pattern.
+
+## QA verification (no real acquisition data required)
+
+`scripts/qa-verify-external-pipeline.ts` proves the full pipeline — import →
+moderate (approve) → confirm it can **never** reach `public_external_reports`
+→ reject → delete — end to end in production, without touching real
+acquisition data or real company organizations. It targets a dedicated,
+**permanently unpublishable** source (`qa_external_verification`, migration
+`0030`, `enabled=false` forever) and the existing QA organization
+(`m54-qa-verification-test`, D-024) via an exact-slug match, calling the
+SAME `runExternalImport` / `moderateExternalReport` functions the real admin
+routes and CLI use — no reimplemented logic.
+
+```bash
+npx tsx scripts/qa-verify-external-pipeline.ts
+```
+
+Safe to re-run any time — it cleans up after itself and asserts the row
+count returns to its baseline.
 
 ## Legal posture (bootstrap)
 
