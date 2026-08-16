@@ -6,6 +6,19 @@
  * reads the timeline after the deadline has passed — typically a company-page
  * view. This is honest about the limitation: staleness is detected on next
  * read, not proactively. A real background worker is future work.
+ *
+ * REQUIRES A SERVICE-ROLE CLIENT (migration 0029). computeStaleness() and
+ * analytics.ts's daysToResolution/observedMonths need day-precision
+ * timestamps that anon/authenticated can no longer read directly — 0029
+ * column-locked hiring_opportunities.first_observed_at/last_activity_at/
+ * observation_deadline_at and hiring_events.created_at/submission_id to close
+ * an n=1 de-anonymization leak (a single-report opportunity's exact
+ * submission time was queryable by anyone holding the public anon key,
+ * bypassing the coarsened public_hiring_opportunities view entirely). These
+ * loaders now read the BASE TABLES directly — service-role bypasses RLS and
+ * column grants, matching how recordStaleInferenceIfDue already writes via
+ * the admin client below. An anon/authenticated client can no longer satisfy
+ * this module's own queries; callers must pass createAdminClient().
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -76,13 +89,16 @@ function hydrateOpportunities(opps: OppRow[], events: EventRow[]): PublicHiringO
  * Read-only surface — never mutates. Opportunistic staleness recording (see
  * recordStaleInferenceIfDue) is a SEPARATE, explicit call the caller makes,
  * so a page render is never surprised by a side-effecting read.
+ *
+ * Reads the BASE tables (not public_hiring_opportunities/public_hiring_events)
+ * for exact-timestamp precision — pass a service-role client (see file header).
  */
 export async function loadHiringOpportunities(
   supabase: SupabaseClient,
   organizationId: string
 ): Promise<PublicHiringOpportunity[]> {
   const { data: opps } = await supabase
-    .from("public_hiring_opportunities")
+    .from("hiring_opportunities")
     .select("id, role_key, first_observed_at, last_activity_at, observation_deadline_at")
     .eq("organization_id", organizationId)
     .order("last_activity_at", { ascending: false });
@@ -92,7 +108,7 @@ export async function loadHiringOpportunities(
 
   const ids = opportunities.map((o) => o.id);
   const { data: events } = await supabase
-    .from("public_hiring_events")
+    .from("hiring_events")
     .select("id, hiring_opportunity_id, actor_type, event_type, payload, reported_month")
     .in("hiring_opportunity_id", ids)
     .order("id", { ascending: true }); // insertion order proxy — reported_month is coarser than createdAt and not reliable to sort on alone
@@ -105,10 +121,12 @@ export async function loadHiringOpportunities(
  * cross-company analytics read (mirrors loadAllFirstPartyRows/loadAllExternalRows
  * in src/lib/evidence/load.ts exactly: throws rather than swallowing, same row
  * cap, same cap-hit warning). Two queries total, grouped in memory — no N+1.
+ *
+ * Reads the BASE tables — pass a service-role client (see file header).
  */
 export async function loadAllHiringOpportunities(supabase: SupabaseClient): Promise<PublicHiringOpportunity[]> {
   const { data: opps, error: oppsError } = await supabase
-    .from("public_hiring_opportunities")
+    .from("hiring_opportunities")
     .select("id, role_key, first_observed_at, last_activity_at, observation_deadline_at")
     .order("last_activity_at", { ascending: false })
     .limit(ANALYTICS_ROW_CAP);
@@ -122,7 +140,7 @@ export async function loadAllHiringOpportunities(supabase: SupabaseClient): Prom
 
   const ids = opportunities.map((o) => o.id);
   const { data: events, error: eventsError } = await supabase
-    .from("public_hiring_events")
+    .from("hiring_events")
     .select("id, hiring_opportunity_id, actor_type, event_type, payload, reported_month")
     .in("hiring_opportunity_id", ids)
     .order("id", { ascending: true })

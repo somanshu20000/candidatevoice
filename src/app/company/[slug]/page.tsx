@@ -762,14 +762,18 @@ export default async function CompanyPage({ params, searchParams }: Props) {
   let hiringOpportunities: Awaited<ReturnType<typeof loadHiringOpportunities>> = [];
   if (profile?.organizationId) {
     try {
-      hiringOpportunities = await loadHiringOpportunities(supabase as unknown as SupabaseClient, profile.organizationId);
+      // Migration 0029: loadHiringOpportunities reads exact timestamps off the
+      // BASE tables, which anon/authenticated can no longer see (column-level
+      // lockdown closing an n=1 timing leak) — requires the admin client, same
+      // as the stale-inference write below.
+      const hiringAdmin = createAdminClient() as unknown as SupabaseClient;
+      hiringOpportunities = await loadHiringOpportunities(hiringAdmin, profile.organizationId);
       const due = hiringOpportunities.filter(
         (o) => new Date(o.observationDeadlineAt).getTime() < Date.now() && !o.events.some((e) => e.eventType === "system_stale_inference")
       );
       if (due.length > 0) {
-        const admin = createAdminClient() as unknown as SupabaseClient;
-        await Promise.all(due.map((o) => recordStaleInferenceIfDue(admin, o)));
-        hiringOpportunities = await loadHiringOpportunities(supabase as unknown as SupabaseClient, profile.organizationId);
+        await Promise.all(due.map((o) => recordStaleInferenceIfDue(hiringAdmin, o)));
+        hiringOpportunities = await loadHiringOpportunities(hiringAdmin, profile.organizationId);
       }
     } catch {
       hiringOpportunities = [];

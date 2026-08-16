@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { loadCompanyAnalytics, ghostingLeaderboard, fastestHiring, rankCompanies } from "@/lib/evidence";
 import type { CompanyAnalytics, RankedCompany } from "@/lib/evidence";
 import { loadAllHiringOpportunities } from "@/lib/hiring-intent/timeline";
@@ -150,9 +150,13 @@ export default async function AnalyticsPage() {
   // hiring-events-only state still shows what it can. A failure here is
   // swallowed (empty list → the section self-suppresses) and never blocks the
   // company rankings.
+  // Migration 0029: loadAllHiringOpportunities reads exact timestamps off the
+  // BASE tables for day-precision staleness/resolution math — anon can no
+  // longer see those columns (closes an n=1 timing leak), so this needs the
+  // admin client specifically, unlike loadCompanyAnalytics above it.
   const [analytics, hiringOpportunities] = await Promise.all([
     loadCompanyAnalytics(supabase as unknown as SupabaseClient).catch(() => null),
-    loadAllHiringOpportunities(supabase as unknown as SupabaseClient).catch(() => []),
+    loadAllHiringOpportunities(createAdminClient() as unknown as SupabaseClient).catch(() => []),
   ]);
   const hiringAnalytics = buildHiringAnalytics(hiringOpportunities, new Date());
 

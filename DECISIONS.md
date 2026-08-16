@@ -721,6 +721,65 @@ to prove a database guarantee, even briefly.
 
 ---
 
+## D-026 · RLS is row-only — a coarsening view over an unconditionally-open base table is not a privacy boundary
+**Status:** Accepted · 2026-08-16 · V1.1 (`supabase/migrations/0029_hiring_opportunity_timing_leak.sql`)
+
+D-016 flagged `public_hiring_opportunities.first_observed_at` as an exposed
+exact timestamp — an n=1 de-anonymization vector for a single-report
+opportunity. Closing it surfaced a more general bug: migration 0023 gave
+`hiring_opportunities`/`hiring_events` an UNCONDITIONAL anon/authenticated
+SELECT policy (`using (true)`) on the **base tables**, not only on the
+`public_*` views layered over them. Postgres RLS filters ROWS; it has no
+concept of hiding a COLUMN. So the coarsening view was never a real boundary
+— any holder of the public anon key (shipped in every browser bundle as
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`) could bypass it entirely and query the exact
+column directly off the base table. The same gap also exposed
+`hiring_events.submission_id` and `.created_at`, neither named in the
+original D-016 finding — the leak was broader than first identified.
+
+**The only correct fix is column-level GRANT**, Postgres's separate
+privilege system for exactly this: `revoke select on t from anon,
+authenticated` then `grant select (safe_col, safe_col) on t to anon,
+authenticated`. A view redefinition alone cannot close this class of leak —
+it can only make the *intended* path narrower while leaving the direct path
+wide open. `public_hiring_opportunities` was additionally switched off
+`security_invoker = on` (to definer/owner mode) so it can still read the
+now-column-restricted timestamps internally to compute a coarsened
+`first_observed_month`/`last_activity_month` — this changes nothing about
+row visibility, only which columns are readable and by which path.
+
+**Internal engine reads that genuinely need day-precision must use the
+service-role client, reading base tables directly** — `stale.ts`'s
+`computeStaleness` and `analytics.ts`'s `daysToResolution`/`observedMonths`
+cannot work off month-coarsened data, unlike the Evidence Engine (which only
+ever needed month precision, so `public_submissions`'s row-level RLS
+scoping was always sufficient there — `hiring_submissions` has no equivalent
+gap because its own base-table RLS policy was scoped from day one, `using
+(is_approved = true and rejected_at is null)`, matching D-016's original,
+narrower framing).
+
+**Why this is recorded as its own decision, not folded into D-016:** the
+generalizable lesson — *check column-level exposure on the base table, not
+just what the intended-path view projects, for any RLS-enabled table with a
+public read policy* — applies to every future public-facing table this
+codebase adds, not just this one leak.
+
+**Live-verified in production** (not just locally): `set local role anon;
+select first_observed_at from hiring_opportunities` → `permission denied for
+table hiring_opportunities`. Safe columns and the coarsened view both
+confirmed still working for anon.
+
+**Cost:** none beyond the migration itself — no product behavior changed
+(the UI never rendered these fields; only direct API/database access is
+affected), and the two internal callers already had an admin client
+available nearby (`recordStaleInferenceIfDue` was already using one).
+**Revisit if:** a future public view is added over an RLS-enabled table with
+an unconditional (`using (true)`) or otherwise permissive base policy —
+audit whether every column the view's own query reads is safe for the
+querying role to access directly, not just what the view projects.
+
+---
+
 ## Open questions (decisions *not* yet made)
 
 | # | Question | Blocked on |

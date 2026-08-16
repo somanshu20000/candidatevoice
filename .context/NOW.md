@@ -1,7 +1,114 @@
 # NOW — CandidateVoice project state
 
-**Current phase:** M5.5 Live HTTP verification — **BLOCKED, not started (4th attempt) — root cause now conclusively isolated**.
+**Current phase:** V1.1 (hiring-opportunity timing leak) — **COMPLETE, applied to production**. M5.5 (HTTP verification) still **BLOCKED** on the secret save issue.
 **Last updated:** 2026-08-16.
+
+## V1.1 — closed the hiring-opportunity n=1 timing leak
+
+Migration `0029` is **applied to production** and live-verified. What it
+found and fixed:
+
+**The real bug was deeper than "coarsen a view."** `hiring_opportunities`/
+`hiring_events` (migration 0023/0024) had an UNCONDITIONAL anon/authenticated
+SELECT policy on the BASE TABLES, not just on the `public_*` views. Postgres
+RLS is row-level only — it cannot hide a column. So `public_hiring_opportunities`'s
+projection was never a real privacy boundary: any holder of the public anon
+key (shipped in every browser bundle) could bypass the view entirely and
+`select first_observed_at from hiring_opportunities` directly. For a
+single-report opportunity, that's the candidate's exact submission time —
+the exact n=1 leak flagged in D-016/open-question Q-5, and confirmed *worse*
+than described: `hiring_events.submission_id`/`created_at` had the identical
+exposure, never named in the original finding.
+
+**The fix is column-level GRANT, not just a view redefinition** — the only
+Postgres mechanism that can actually restrict a column: `revoke select ...
+from anon, authenticated` then `grant select (safe, columns, only) ...`.
+`public_hiring_opportunities` is redefined to expose only
+`first_observed_month`/`last_activity_month` (mirrors
+`public_submissions.reported_month` exactly) and drops
+`observation_deadline_at` entirely (nothing public needs the raw deadline;
+staleness is already publicly knowable via the existing
+`system_stale_inference` event). The view drops `security_invoker = on`
+(switches to definer/owner mode) so it can still read the now-restricted
+columns internally to compute the coarsened value — this changes NOTHING
+about row visibility (the base policy stays `using (true)`, unchanged).
+
+**Internal reads moved to the admin client.** `analytics.ts`'s
+`daysToResolution`/`observedMonths` and `stale.ts`'s `computeStaleness` need
+genuine day-precision — unlike the Evidence Engine, month-only isn't enough
+internally. `loadHiringOpportunities`/`loadAllHiringOpportunities` now read
+the BASE tables directly via `createAdminClient()` (service-role bypasses
+RLS and column grants), matching how `recordStaleInferenceIfDue` already
+wrote via admin — reads and writes are now consistently privileged. Updated
+both callers (`company/[slug]/page.tsx`, `analytics/page.tsx`).
+
+**Live-verified in production, not just locally:** `set local role anon;
+select first_observed_at from hiring_opportunities` → `permission denied`
+(confirmed). Safe columns (`id, organization_id, role_key`) still readable
+directly. `public_hiring_opportunities` still returns
+`first_observed_month`/`last_activity_month` correctly. `hiring_events.submission_id`
+→ `permission denied` for anon, confirmed.
+
+**Tests:** `tests/hiring-opportunity-timing-leak.test.ts` (new, 12 tests) —
+structural parity against the migration text, matching the established
+convention (no live DB in this dev environment). Full suite: `npx tsc
+--noEmit` clean, `npx vitest run` **50 files, 714 tests** (12 new), `npm run
+build` clean.
+
+**Recorded as D-026** (see DECISIONS.md) — the durable lesson (RLS is
+row-only; a coarsening view over an unconditionally-open base table is not a
+privacy boundary) generalizes beyond this one leak and is worth checking
+against any future public-facing table.
+
+### M5.5 — still blocked, unchanged from before this pass
+`VERIFICATION_SECRET` still needs to be confirmed as a genuinely
+Production-scoped Vercel env var (see the M5.5 history below — not a
+build-staleness issue, a save issue). Not touched this pass; V1.1 was
+independent, unblocked work per the roadmap.
+
+---
+
+## M5.5 history (superseded above as "current phase" for M5.6/V1.1, but M5.5 itself remains open)
+
+## Planning decision — next phase (infra → evidence-generating product)
+
+An architecture pass planned the path from verified infrastructure to real
+evidence. Full roadmap is in the session report; the load-bearing decisions:
+
+- **VERIFICATION_SECRET blocker (V0.1, human):** not a build-staleness issue —
+  isolated to the var not being saved as a **Production**-scoped env var.
+  Resolution is a human dashboard action. Architectural guardrail planned so
+  this stops recurring: an admin-gated `/api/verify/health` → `{configured}`
+  (never leaks the value), and a rule that readiness is asserted by a POSITIVE
+  (200 + token), never by absence of an error string (the false-positive that
+  bit this session's poll loop).
+- **Safe real-candidate path (item 3):** already anonymous-by-default —
+  verification is optional/never-required (§17-B). ONE hard prerequisite before
+  soliciting real volume: coarsen `public_hiring_opportunities.first_observed_at`
+  to month (**V1.1** — closes the n=1 timing leak, open Q-5 / D-016).
+- **Anonymous employee submission (item 4):** already schema/engine-supported
+  (`reporter_type='employee'`, culture, conduct); disjointness holds unchanged.
+  Rule: employee/conduct reports stay `unverified`, conduct NEVER gets a
+  per-report verified badge, verification NOT recommended for retaliation-
+  sensitive reports. D-008's legal preconditions still unmet → conduct stays
+  hard-gated; culture (floor 5) is the reachable employee surface.
+- **M5.2b (email/domain tier): stays DEFERRED** — protects a supply that
+  doesn't exist yet; new vendor + email + legal failure domain. If a verified
+  signal is ever needed sooner, the `attested` tier (human review, no vendor)
+  is the cheaper first step, not M5.2b. Revisit only when the evidence target
+  is met AND a concrete `contact_domain` demand appears. (→ record as D-025.)
+- **External acquisition / M6:** gated behind a first-party base + resolved Q-2
+  (permitted source; D-005 forecloses LinkedIn) + the vendor/legal gate. Not
+  before the evidence target below.
+- **Minimum evidence target (item 7):** Threshold = 1 company at effectiveN ≥ 5
+  (HQS renders). Target = 3 companies ≥ 5, one ≥ 8–10 (~18–25 approved reports).
+  Stretch = 1 company ≥ 20 (full search confidence).
+
+**Recommended next actions:** V0.1 (human — set the Production-scoped secret,
+unblocks M5.5 via V0.3) in parallel with **V1.1 (Sonnet — coarsen
+`first_observed_at`)**, the highest-value unblocked task and a hard safety
+prerequisite before any real candidate is invited to submit. No code was
+written in this planning pass; no M6.
 
 ## Headline (M5.5)
 
