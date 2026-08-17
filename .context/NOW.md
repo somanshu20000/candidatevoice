@@ -50,9 +50,9 @@ touched, exactly as instructed):
 
 **Result:** `tsc`, the full 771-test Vitest suite, and `npm run build` all
 pass — verified both against the normal local tree AND, separately, against
-an isolated copy of exactly what's committed. Pushed as `<commit>` (see
-commit list below); new Vercel deployment `<deployment-id>` confirmed
-`READY`.
+an isolated copy of exactly what's committed. Pushed as `b5c8800`; new Vercel
+deployment `dpl_HLhUQArKkzgWKByYABLRwXv1nhQ8` confirmed `READY` (positively
+checked via `list_deployments`, not assumed).
 
 **⚠ STILL URGENT, unrelated to the above:** production's
 `external_sources.acquisition_enabled` is `true` for `glassdoor` /
