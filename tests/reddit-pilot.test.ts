@@ -69,13 +69,19 @@ describe("Reddit-shaped record — normalize/validate", () => {
 });
 
 describe("Reddit-shaped records — import + dedupe (real core, fake store)", () => {
-  const REDDIT_SOURCE: ExternalSourceRow = {
+  // Cast via `unknown`, not a direct type annotation: this fixture must
+  // satisfy the acquisition gate at RUNTIME (importer.ts checks
+  // source.acquisitionEnabled) while staying type-compatible with the
+  // COMMITTED ExternalSourceRow shape (what Vercel actually builds), which
+  // does not yet declare that field. The `unknown` cast bypasses both
+  // excess- and missing-property checks in either direction.
+  const REDDIT_SOURCE = {
     id: "src-reddit",
     key: "reddit",
     enabled: false,
     acquisitionEnabled: true,
     trustWeight: 0.3,
-  };
+  } as unknown as ExternalSourceRow;
 
   function makeFakeStore(overrides: Partial<ExternalReportStore> = {}): ExternalReportStore {
     return {

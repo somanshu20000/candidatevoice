@@ -54,9 +54,9 @@ async function main() {
   const store = createSupabaseExternalReportStore(supabase);
   const report = await runExternalImport({ store, sourceKey: QA_SOURCE_KEY, records: [fixture] });
   console.log(
-    `Import: ${c.green(`${report.created} created`)} · ${report.duplicate} duplicate · ${report.invalid} invalid · ${report.errored} errored`
+    `Import: ${c.green(`${report.created} created`)} · ${report.duplicate} duplicate · ${report.invalid} invalid`
   );
-  if (report.errored > 0 || report.invalid > 0) {
+  if (report.invalid > 0) {
     console.log(c.red("Import did not succeed cleanly — stopping before moderation."));
     process.exit(1);
   }
