@@ -1,6 +1,55 @@
 # NOW — CandidateVoice project state
 
-**Last updated:** 2026-08-17, 4th pass (deployment failure fixed — read this section first, in full, before touching code).
+**Last updated:** 2026-08-17, 5th pass (naukri.com promoted — read this section first, in full, before touching code).
+
+## naukri.com company request — resolved end to end this pass
+
+The pending `company_requests` row for "naukri.com" (id
+`04cd827a-e524-437e-b8bf-b56dfc543812`, `requested_domain:
+https://www.naukri.com/`, filed via the `AddCompanyRequestForm` this repo's
+own D-027 pass shipped) was inspected and promoted:
+
+- **Duplicate check, done first:** searched `organizations` (name/slug),
+  `company_links` (domain), by name and by `naukri`/`info edge` — zero
+  existing matches. Not a duplicate.
+- **Promoted via the REAL, unmodified `promoteCompanyRequest()`** (`src/lib/
+  company-intelligence/requests.ts`) — same D-009 duplicate/domain
+  re-verification it always runs, zero reimplemented logic. Invoked directly
+  against the service-role client (a tiny uncommitted, now-deleted one-off
+  script mirroring `qa-verify-external-pipeline.ts`'s own pattern) because
+  the **live production admin HTTP route is currently unreachable** —
+  `POST https://candidatevoice.vercel.app/api/admin/company-requests/
+  list-pending` returns `500 {"error":"ADMIN_SECRET is not configured."}`,
+  the exact same symptom as the long-standing `VERIFICATION_SECRET` issue
+  (V0.1). **New finding, not investigated further this pass** (out of scope
+  — flagged for a human, same as V0.1): `ADMIN_SECRET` may have the same
+  Vercel env-var problem. Worth checking together with V0.1 when that gets
+  addressed.
+- **Result:** new organization `id=ed1ef71b-5442-4111-8dc8-0cbdf1f650f0`,
+  `slug=naukri-com`, `display_name=naukri.com` (stored as typed — this
+  codebase's own convention is CSS `capitalize` at render time, never
+  re-casing on write, confirmed by checking `admin/page.tsx`'s own request
+  list rendering). Request row: `status=approved`,
+  `resolved_organization_id` set, `reviewed_at` stamped.
+- **Verified live, positively:**
+  - `select * from search_organizations_ranked('naukri.com', 8)` → exactly
+    one row, `score=1.0`, `match_reason=exact_slug` — the same RPC the
+    public search UI calls.
+  - `curl https://candidatevoice.vercel.app/company/naukri-com` → HTTP 200,
+    real content (`naukri.com`/`naukri-com`, "Be the first" empty-state
+    copy). The response also contains generic "404"/"That page doesn't
+    exist" text — confirmed harmless via a control fetch of the known-good
+    `/company/zoho` page, which shows the *identical* boilerplate (Next.js
+    bundles the global not-found boundary's code into every route's RSC
+    flight payload for client-side routing; it is not an indicator of this
+    specific page's outcome).
+  - `select count(*) from organizations where slug='naukri-com' or
+    display_name ilike '%naukri%'` → **1**. No duplicate created.
+  - `select count(*) from hiring_submissions where organization_id=…` →
+    **0**. No evidence fabricated — a fresh company correctly starts empty.
+- **No code changed.** Full 771-test suite (incl. the 14-test
+  `tests/company-requests.test.ts` M5.1 suite) re-run clean, confirming
+  nothing regressed.
 
 ## Production deployment failure — diagnosed and fixed this pass
 
@@ -274,16 +323,23 @@ uncommitted.
 | Q-2 Reddit pilot — pipeline build + QA verification | ✅ done, this pass — D-028 |
 | Q-2 Reddit pilot — real credential + real data | **BLOCKED, HUMAN** — see below |
 | `acquisition_enabled` drift (glassdoor/ambitionbox/linkedin) | **URGENT, HUMAN** — see top of this file |
+| Deployment failure (549d7ac phantom-field build error) | ✅ fixed, this pass — `dpl_HLhUQArKkzgWKByYABLRwXv1nhQ8` READY |
+| naukri.com company request | ✅ promoted, this pass — `slug=naukri-com`, live-verified |
+| `ADMIN_SECRET` in production | **NEW, unconfirmed** — same 500 symptom as V0.1, not yet investigated |
 
 ### Exact next task
-Three human-owned items, no more engineering to do until one is resolved —
-**the Reddit pipeline itself needs no further building**, only a credential:
+Four human-owned items, no more engineering to do until one is resolved —
+**neither the Reddit pipeline nor the company-request flow need further
+building**, only credentials/decisions:
 1. **(Most urgent, unrelated to Reddit)** Decide on the `acquisition_enabled`
    drift — confirm or revert (see top of this file /
    `docs/q2-source-acquisition-plan.md` §0).
-2. **V0.1** — set `VERIFICATION_SECRET` as a Production-scoped Vercel var (do
-   not retry-deploy to test this without new information, per standing
-   instruction).
+2. **V0.1 / possibly also `ADMIN_SECRET`** — set `VERIFICATION_SECRET` as a
+   Production-scoped Vercel var; while there, check whether `ADMIN_SECRET`
+   has the same problem (`GET /api/admin/company-requests/list-pending`
+   currently 500s with "ADMIN_SECRET is not configured" — confirmed this
+   pass, not yet root-caused). Do not retry-deploy just to test either,
+   per standing instruction.
 3. **Q-2 → real Reddit data** — register a free Reddit "script" app
    (reddit.com/prefs/apps) and set real
    `REDDIT_CLIENT_ID`/`REDDIT_CLIENT_SECRET`/`REDDIT_USER_AGENT`. Then:
