@@ -1001,6 +1001,142 @@ describes.
 
 ---
 
+## D-029 · The acquisition pipeline is a real, triggerable, end-to-end system — not adapters in isolation
+
+**Status:** Accepted · 2026-08-17 ·
+`src/lib/external-intel/{orchestrator,adapters/{reddit,demo}}.ts`,
+`supabase/migrations/{0031,0032}`,
+`src/app/api/{admin/external/{runs,acquire},cron/acquire-external}/route.ts`,
+`vercel.json`, `src/app/admin/page.tsx`
+
+D-028 proved the Reddit *adapter* and the *existing* hiring-intel core work.
+This decision closes the gap D-028 explicitly left open: nothing tied
+company-detection, source-eligibility, acquisition, and the existing
+import/moderation core into one callable, schedulable system. Before this,
+"running the pipeline" meant a human invoking `scripts/reddit_ingest.py` then
+`npm run external:import` by hand — the exact manual-script dependency this
+decision removes.
+
+**The real, end-to-end vertical slice — every stage genuinely wired, none
+mocked:**
+
+```
+company search (searchOrganizationsRanked, EXISTING)
+  -> detect unknown/sparse (confident match? else queue a company_request
+     via createCompanyRequest, EXISTING, same D-009 checks the public
+     "Add this company" flow uses)
+  -> source eligibility (external_sources.acquisition_enabled, the Q-2 gate,
+     EXISTING column, never bypassed)
+  -> acquire (adapter.load() — REAL Reddit OAuth+search, or the
+     credential-free demo adapter)
+  -> structured extraction (same RawExternalReport contract every source
+     already used)
+  -> provenance + content hash + validation + dedup (runExternalImport,
+     src/lib/hiring-intel/importer.ts, UNCHANGED — not reimplemented)
+  -> moderation queue (verification_status='pending', UNCHANGED)
+  -> [human approval] -> Evidence Engine (UNCHANGED)
+```
+
+**Real Reddit, ported in-process (`adapters/reddit.ts`), not the Python
+script wrapped.** `scripts/reddit_ingest.py` (D-028) is a manually-run CLI
+tool with no path into the app. This is the SAME source — same OAuth grant
+(`client_credentials`, what PRAW's `read_only=True` does internally), same
+extraction regexes ported verbatim, same structured-fields-only contract —
+made callable from an API route or the cron trigger, with retry/backoff and
+a real (not inferred) credential check. `isRedditConfigured()` is
+presence-only; `checkRedditCredentials()` performs one live OAuth round
+trip, mirroring V0.2's "positive check, not inference" discipline. Still
+credential-gated exactly as D-028 found (`.env.local`'s values remain 3-char
+placeholders — unchanged by this task, not re-checked since nothing about
+that fact could have changed).
+
+**Demo adapter (`adapters/demo.ts`) — proves the surrounding pipeline
+independent of any credential or ToS surface**, per D-013's already-
+established convention (`example.com` URLs, `extraction_version='demo-v1'`).
+Deterministic (same company → same `external_ref`/`content_hash`), which is
+what makes idempotency provably testable rather than assumed. Registered
+under its own permanently-`enabled=false` source (migration 0032, mirroring
+migration 0030's QA source) — structurally can never reach
+`public_external_reports`, exactly like the QA source.
+
+**A real bug found by actually running the pipeline, not by reasoning about
+it.** The first live run (Case B below) landed with `organization_id=null`
+instead of the QA organization — the adapter's search input used the
+resolved organization's raw `display_name`
+(`"(QA TEST — M5.4 pipeline verification, safe to ignore)"`), and
+`normalizeCompanySlug` only lowercases and hyphenates *whitespace* — it does
+not strip the parens/em-dash/comma that name contains, so the record's
+`company` field never round-tripped back through `resolve_organization()`.
+**Fixed in `orchestrator.ts`, not in the untouched core**: once an
+organization is confidently resolved, every acquired record's `company`
+field is rewritten to that organization's own `slug` (guaranteed to resolve
+to itself) before handing off to `runExternalImport`. A regression test
+(`tests/external-acquisition-orchestrator.test.ts`, messy `display_name`
+fixture) pins this. `RawExternalReport` / `normalizeExternalReport` /
+`runExternalImport` were not touched — the fix lives entirely in what this
+orchestrator hands them.
+
+**Admin status view (migration 0031, `external_acquisition_runs`) — the one
+genuinely new table.** `external_reports.verification_status` is per-record;
+an acquisition attempt that found nothing produces no record at all, which
+was invisible. This table's sole job is showing the ATTEMPT
+(`queued → fetching → extracted → validation_failed/awaiting_moderation/
+completed/failed`), carrying no evidence content itself. Service-role only,
+same RLS posture as `moderation_audit_log`/`rate_limit_counters`. Surfaced
+via `GET /api/admin/external/runs` and a compact table + trigger form on the
+admin page's External tab.
+
+**Scheduled trigger, the real Vercel-native mechanism — not a fictional
+worker service.** `vercel.json` registers `GET /api/cron/acquire-external`
+on a daily schedule; Vercel automatically sends
+`Authorization: Bearer $CRON_SECRET` on cron-triggered requests, which the
+route verifies (fails closed — 500 if `CRON_SECRET` is unset, matching
+`ADMIN_SECRET`'s own fail-closed shape). The cron route **only ever uses the
+real `reddit` source, never `demo`** — deliberately, so no fabricated-looking
+content can ever auto-attach to a real company's moderation queue; if
+Reddit's credentials aren't genuinely valid (checked live), every candidate
+is skipped and reported as skipped, never silently retried into a fake
+success.
+
+**Live acceptance evidence (production, cleaned up after — no residue left
+in any real company's queue):**
+- Case A (unknown company, demo source): `companyRequestCreated: true`,
+  zero records acquired (correctly short-circuits before ever calling the
+  adapter for an unresolved company) — queued a `company_requests` row,
+  rejected and removed after.
+- Case B (QA organization, sparse evidence, demo source), run twice:
+  - Run 1 → `status: "awaiting_moderation"`, `recordsCreated: 1`. Inserted
+    row carried `company: "m54-qa-verification-test"` (the org's own slug —
+    the bug fix, live-proven), `organization_id` correctly set to the QA
+    org, real `source_url`/`external_ref`/`content_hash`
+    (`sha256`, 64 hex chars)/`extraction_version`/`extraction_confidence`,
+    `verification_status: "pending"`.
+  - `public_external_reports` for the QA org: **0 rows** — moderation
+    boundary held even though the record existed and validated cleanly.
+  - Run 2 (same input) → `recordsCreated: 0`, `recordsDuplicate: 1` —
+    idempotent, no second row.
+  - Cleanup: row deleted, count back to 0, confirmed.
+- Real Reddit's *logic* (not just the pipeline around it) is independently
+  proven correct via `tests/external-intel-adapters.test.ts` — mocked-fetch
+  tests of the actual OAuth+search+extraction code path, not a stub.
+
+**What is automatic vs. human-gated, stated plainly:**
+- Automatic: eligibility checking, company detection, acquisition,
+  extraction, validation, dedup, run-status tracking, the cron schedule
+  itself.
+- Human-gated, unchanged from every prior milestone: approving any record
+  into public evidence (moderation), and — the one credential this task
+  could not simulate — registering a real Reddit app so `reddit`-sourced
+  runs produce anything beyond an empty result.
+
+**Remaining blockers, unchanged in kind from D-028, now with a real trigger
+mechanism sitting in front of them:** the Reddit credential (free,
+human-registered) and the `acquisition_enabled` drift on
+glassdoor/ambitionbox/linkedin (D-027 §0, still not reverted, still out of
+scope for this task).
+
+---
+
 ## Open questions (decisions *not* yet made)
 
 | # | Question | Blocked on |

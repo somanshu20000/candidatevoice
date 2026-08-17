@@ -71,6 +71,30 @@ interface CompanyRequestItem {
 
 type Tab = "hiring" | "external" | "companies";
 
+interface AcquisitionRun {
+  id: string;
+  source_key: string;
+  company_query: string;
+  status: string;
+  records_found: number;
+  records_created: number;
+  records_duplicate: number;
+  records_invalid: number;
+  error_message: string | null;
+  triggered_by: string;
+  started_at: string;
+}
+
+const RUN_STATUS_COLOR: Record<string, string> = {
+  queued: "text-ink-muted",
+  fetching: "text-ink-soft",
+  extracted: "text-ink-soft",
+  validation_failed: "text-bad",
+  awaiting_moderation: "text-[#C9A227]",
+  completed: "text-ink-muted",
+  failed: "text-bad",
+};
+
 const STATUS_DOT: Record<RelatedReportRef["status"], string> = {
   pending: "bg-[#C9A227]",
   approved: "bg-good",
@@ -112,6 +136,11 @@ export default function AdminPage() {
   const [savingMultiplier, setSavingMultiplier] = useState(false);
   // V3.1 — evidence-readiness (how close production is to a useful evidence base).
   const [readiness, setReadiness] = useState<EvidenceReadiness | null>(null);
+  // Acquisition pipeline status (queued -> fetching -> extracted -> ... -> awaiting_moderation/completed/failed).
+  const [runs, setRuns] = useState<AcquisitionRun[]>([]);
+  const [runQuery, setRunQuery] = useState("");
+  const [runSource, setRunSource] = useState<"demo" | "reddit">("demo");
+  const [runTriggering, setRunTriggering] = useState(false);
 
   const isReady = useMemo(() => secret.trim().length > 0, [secret]);
 
@@ -121,6 +150,36 @@ export default function AdminPage() {
     });
     const body = (await res.json().catch(() => null)) as { readiness?: EvidenceReadiness } | null;
     if (res.ok && body?.readiness) setReadiness(body.readiness);
+  }
+
+  async function loadRuns() {
+    const res = await fetch("/api/admin/external/runs", {
+      headers: { Authorization: `Bearer ${secret.trim()}` },
+    });
+    const body = (await res.json().catch(() => null)) as { data?: AcquisitionRun[] } | null;
+    if (res.ok && body?.data) setRuns(body.data);
+  }
+
+  async function triggerRun(e: FormEvent) {
+    e.preventDefault();
+    if (!runQuery.trim() || runTriggering) return;
+    setRunTriggering(true);
+    setError(null);
+    setMessage(null);
+    const res = await fetch("/api/admin/external/acquire", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${secret.trim()}` },
+      body: JSON.stringify({ companyQuery: runQuery.trim(), sourceKey: runSource }),
+    });
+    const body = (await res.json().catch(() => null)) as { status?: string; errorMessage?: string; error?: string } | null;
+    setRunTriggering(false);
+    if (!res.ok) {
+      setError(body?.error ?? "Acquisition run failed to start.");
+      return;
+    }
+    setMessage(`Run finished: ${body?.status}${body?.errorMessage ? ` — ${body.errorMessage}` : ""}`);
+    setRunQuery("");
+    await loadRuns();
   }
 
   async function loadMultiplier() {
@@ -199,6 +258,7 @@ export default function AdminPage() {
     await loadTab(tab);
     void loadMultiplier();
     void loadReadiness();
+    void loadRuns();
   }
 
   function selectTab(next: Tab) {
@@ -489,6 +549,86 @@ export default function AdminPage() {
 
       {tab === "external" && (
         <>
+          <div className="border border-rule bg-paper-sheet rounded-sm p-5 mb-6 shadow-sheet">
+            <h2 className="font-serif text-lg text-ink mb-1">Acquisition pipeline</h2>
+            <p className="text-xs text-ink-muted mb-4">
+              Company search → source eligibility → acquire → extract → validate → dedupe → moderation queue. Nothing
+              here becomes public evidence — every record still lands pending, below.
+            </p>
+            <form onSubmit={triggerRun} className="flex flex-wrap items-end gap-2.5 mb-4">
+              <div className="flex-1 min-w-[180px]">
+                <label htmlFor="run-query" className="block text-xs text-ink-muted mb-1">
+                  Company name
+                </label>
+                <input
+                  id="run-query"
+                  type="text"
+                  value={runQuery}
+                  onChange={(e) => setRunQuery(e.target.value)}
+                  placeholder="e.g. Razorpay"
+                  className="w-full bg-paper border border-rule text-ink text-sm rounded-sm px-3 py-2 focus:outline-none focus:border-accent transition-colors"
+                />
+              </div>
+              <div>
+                <label htmlFor="run-source" className="block text-xs text-ink-muted mb-1">
+                  Source
+                </label>
+                <select
+                  id="run-source"
+                  value={runSource}
+                  onChange={(e) => setRunSource(e.target.value as "demo" | "reddit")}
+                  className="bg-paper border border-rule text-ink text-sm rounded-sm px-3 py-2 focus:outline-none focus:border-accent transition-colors"
+                >
+                  <option value="demo">demo (no credentials needed)</option>
+                  <option value="reddit">reddit (real, needs credentials)</option>
+                </select>
+              </div>
+              <button
+                type="submit"
+                disabled={!runQuery.trim() || runTriggering}
+                className="bg-accent text-paper-sheet text-sm font-medium px-4 py-2 rounded-sm hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {runTriggering ? "Running…" : "Run now"}
+              </button>
+            </form>
+
+            {runs.length === 0 ? (
+              <p className="text-xs text-ink-faint">No acquisition runs yet.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-left text-ink-muted border-b border-rule">
+                      <th className="pb-1.5 pr-3 font-medium">Company</th>
+                      <th className="pb-1.5 pr-3 font-medium">Source</th>
+                      <th className="pb-1.5 pr-3 font-medium">Status</th>
+                      <th className="pb-1.5 pr-3 font-medium tnum">Found / Created / Dup / Invalid</th>
+                      <th className="pb-1.5 pr-3 font-medium">By</th>
+                      <th className="pb-1.5 font-medium">When</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {runs.map((r) => (
+                      <tr key={r.id} className="border-b border-rule/50">
+                        <td className="py-1.5 pr-3 text-ink capitalize">{r.company_query}</td>
+                        <td className="py-1.5 pr-3 text-ink-soft font-mono">{r.source_key}</td>
+                        <td className={`py-1.5 pr-3 font-mono ${RUN_STATUS_COLOR[r.status] ?? "text-ink-soft"}`}>
+                          {r.status}
+                          {r.error_message && <span className="block text-[10px] text-ink-faint">{r.error_message}</span>}
+                        </td>
+                        <td className="py-1.5 pr-3 tnum text-ink-soft">
+                          {r.records_found} / {r.records_created} / {r.records_duplicate} / {r.records_invalid}
+                        </td>
+                        <td className="py-1.5 pr-3 text-ink-faint">{r.triggered_by}</td>
+                        <td className="py-1.5 text-ink-faint tnum">{new Date(r.started_at).toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
           {!loading && loaded.external && externalPending.length === 0 && (
             <div className="border border-dashed border-rule-strong bg-paper-sheet rounded-sm p-12 text-center">
               <p className="text-sm text-ink-muted">No pending external reports.</p>

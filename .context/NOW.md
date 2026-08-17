@@ -1,6 +1,70 @@
 # NOW — CandidateVoice project state
 
-**Last updated:** 2026-08-17, 5th pass (naukri.com promoted — read this section first, in full, before touching code).
+**Last updated:** 2026-08-17, 6th pass (acquisition pipeline built end-to-end, D-029 — read this section first, in full, before touching code).
+
+## The acquisition pipeline is real and triggerable, not adapters in isolation (D-029)
+
+The gap D-028 left open — nothing tied company-detection, source-eligibility,
+acquisition, and the existing import/moderation core into one callable
+system — is closed. `src/lib/external-intel/orchestrator.ts`'s
+`runAcquisition()` is the single entry point:
+
+```
+company search -> detect unknown/sparse -> source eligibility (acquisition_enabled)
+-> acquire (adapter.load()) -> runExternalImport (UNCHANGED: provenance,
+content hash, validation, dedup) -> moderation queue
+```
+
+**Two adapters** (`src/lib/external-intel/adapters/`): `reddit.ts` (real,
+in-process OAuth `client_credentials` + search, same source D-028 proved,
+now callable without a human running a script — still credential-gated,
+unchanged from D-028: `.env.local` still holds 3-char placeholders) and
+`demo.ts` (deterministic, credential-free, permanently-unpublishable source,
+migration `0032`, mirrors migration `0030`'s QA source).
+
+**Triggered three ways, same underlying function:** the admin UI's new
+"Acquisition pipeline" section (External tab — company name + source select
++ Run now), a Vercel Cron entry (`vercel.json`, daily, hits
+`GET /api/cron/acquire-external`, `CRON_SECRET`-protected, **only ever uses
+`reddit`, never `demo`**), or programmatically. Status view:
+`GET /api/admin/external/runs` / the same admin section — every run's full
+stage trail (`queued → fetching → extracted → validation_failed →
+awaiting_moderation → completed/failed`) persisted to the new
+`external_acquisition_runs` table (migration `0031`) — the one genuinely new
+table, justified because a zero-record attempt was previously invisible.
+
+**A real bug, found by actually running it, not by reasoning about it:** the
+first live run landed a record with `organization_id=null` instead of the
+target organization — the adapter searched using the org's raw
+`display_name`, which contained punctuation `normalizeCompanySlug` doesn't
+strip, so it never round-tripped back through `resolve_organization()`.
+Fixed in the orchestrator (records get their `company` field rewritten to
+the confidently-resolved org's own `slug` before import) — the existing
+`RawExternalReport`/`normalizeExternalReport`/`runExternalImport` core was
+NOT touched. A regression test with a deliberately messy `display_name`
+fixture pins this in `tests/external-acquisition-orchestrator.test.ts`.
+
+**Live acceptance evidence (production, fully cleaned up after):** an
+unknown-company run correctly queued a `company_requests` row without ever
+calling the adapter; a known-company run (QA org, demo source) produced a
+real `external_reports` row — `company` rewritten to `m54-qa-verification-
+test`, `organization_id` correctly set, real `content_hash`/`source_url`/
+`external_ref`/`extraction_version`, `verification_status: 'pending'`,
+**zero rows in `public_external_reports`** even though the record validated
+cleanly — a second identical run produced `recordsDuplicate: 1` with no new
+row (idempotency proven), then everything was deleted/rejected, confirmed
+back to baseline. Full detail, including the exact JSON output of every
+step, is in D-029.
+
+**Full gate:** tsc clean, vitest 791/791, `npm run build` clean.
+
+**What remains blocked — unchanged in kind, now sitting behind a real
+trigger instead of a manual script:** the Reddit credential (free,
+human-registered — see D-028/D-029 for the exact command sequence once set),
+and the still-unresolved `acquisition_enabled` drift on
+glassdoor/ambitionbox/linkedin (D-027 §0 — not touched this pass either).
+
+---
 
 ## naukri.com company request — resolved end to end this pass
 
@@ -326,11 +390,12 @@ uncommitted.
 | Deployment failure (549d7ac phantom-field build error) | ✅ fixed, this pass — `dpl_HLhUQArKkzgWKByYABLRwXv1nhQ8` READY |
 | naukri.com company request | ✅ promoted, this pass — `slug=naukri-com`, live-verified |
 | `ADMIN_SECRET` in production | **NEW, unconfirmed** — same 500 symptom as V0.1, not yet investigated |
+| Acquisition pipeline (orchestrator + adapters + cron + admin view) | ✅ done, this pass — D-029, live-verified |
 
 ### Exact next task
 Four human-owned items, no more engineering to do until one is resolved —
-**neither the Reddit pipeline nor the company-request flow need further
-building**, only credentials/decisions:
+**the acquisition pipeline, Reddit adapter, and company-request flow need no
+further building**, only credentials/decisions:
 1. **(Most urgent, unrelated to Reddit)** Decide on the `acquisition_enabled`
    drift — confirm or revert (see top of this file /
    `docs/q2-source-acquisition-plan.md` §0).

@@ -149,6 +149,43 @@ npx tsx scripts/qa-verify-external-pipeline.ts
 Safe to re-run any time — it cleans up after itself and asserts the row
 count returns to its baseline.
 
+## The acquisition pipeline (D-029) — company detection through to the moderation queue
+
+`src/lib/external-intel/orchestrator.ts`'s `runAcquisition()` is the single
+entry point that ties everything above into one callable, schedulable
+system: company search → detect unknown/sparse → source eligibility
+(`acquisition_enabled`) → acquire (`adapter.load()`) → the unchanged
+`runExternalImport` core (provenance, content hash, validation, dedup) →
+moderation queue. Every stage transition is recorded in
+`external_acquisition_runs` (migration `0031`) so an admin can see an
+acquisition *attempt*, not just its surviving output.
+
+**Two adapters, same `AcquisitionAdapter` interface**
+(`src/lib/hiring-intel/types.ts`):
+- `adapters/reddit.ts` — real, in-process Reddit OAuth (`client_credentials`
+  grant) + search, the same source D-028 proved, made callable without a
+  human running a script.
+- `adapters/demo.ts` — deterministic, credential-free, registered under a
+  permanently-`enabled=false` source (migration `0032`, mirroring `0030`) —
+  exercises the full pipeline with zero external dependency.
+
+**Trigger it three ways** — all call the same `runAcquisition()`, no
+duplicated logic:
+1. **Admin UI** — the External tab's "Acquisition pipeline" section (company
+   name + source select + Run now), backed by `POST /api/admin/external/acquire`.
+2. **Scheduled** — `vercel.json`'s cron entry hits
+   `GET /api/cron/acquire-external` daily (`CRON_SECRET`-protected,
+   Vercel's own auto-injected `Authorization: Bearer` header). Only ever
+   uses `reddit`, never `demo` — a fabricated-looking record must never
+   auto-attach to a real company.
+3. **Programmatically** — `import { runAcquisition } from
+   "@/lib/external-intel/orchestrator"` from any server-side code.
+
+**Status view** — `GET /api/admin/external/runs` (also rendered in the admin
+UI) lists recent runs with their full stage trail
+(`queued → fetching → extracted → validation_failed → awaiting_moderation →
+completed/failed`).
+
 ## Legal posture (bootstrap)
 
 - **Official API only** (PRAW, authenticated) — not HTML scraping.
