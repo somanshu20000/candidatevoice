@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { CompanyProfileView, CompanyTermView } from "@/lib/company-intelligence/read";
 import type { LinkType } from "@/lib/company-intelligence/types";
+import ShareButton from "@/components/ShareButton";
 
 /**
  * Renders imported company metadata. Deliberately framed as "Company facts"
@@ -205,6 +206,7 @@ export default function CompanyOverview({ profile }: { profile: CompanyProfileVi
  * product is unfinished, which costs more trust than the missing feature does.
  */
 export function CompanyActions({ slug }: { slug: string }) {
+  const displayName = slug.replace(/-/g, " ");
   return (
     <div className="flex flex-wrap gap-2.5 mb-8">
       <Link
@@ -213,6 +215,11 @@ export function CompanyActions({ slug }: { slug: string }) {
       >
         Share Experience
       </Link>
+      <ShareButton
+        path={`/company/${encodeURIComponent(slug)}`}
+        title={`Hiring reports for ${displayName} — CandidateVoice`}
+        label="Share this page"
+      />
     </div>
   );
 }

@@ -1137,6 +1137,107 @@ scope for this task).
 
 ---
 
+## D-030 · Named dormant subsystems, kept — this product is feature-complete and evidence-starved, not the reverse
+
+**Status:** Accepted · 2026-08-17 · documentation only, nothing removed
+
+Production state at time of writing: 337 organizations, 6 `hiring_submissions`
+(0 approved — of the 5 pending, 3 belong to a `"ZZ Intent Demo"` test
+organization that was never cleaned up, leaving only 2 genuinely real
+candidate reports, one each on Xcelit and Kodehash Tech), 0 external reports.
+Every scoring dimension needs `effectiveN` between 3 and 8 to render at all
+(D-001 and every dimension's own `MIN_EFFECTIVE_N`) — so almost nothing
+renders for a real visitor today. Two independent audits this session (one
+tracing every collected field to whether anything displays it, one tracing
+every table/route/module to whether anything reads or calls it) confirmed
+the product is **over-built relative to its data**, not under-built. The
+user's explicit direction: prioritize first-party evidence acquisition and
+submit-flow friction, and **do not remove anything that already exists** —
+this entry names what's dormant so a future session doesn't rediscover it as
+an unexplained bug, without deleting any of it.
+
+**Confirmed unreachable end-to-end, not merely unused:** `/api/verify/grant`,
+`/api/verify/consume`, `/api/verify/health`, and the `verification_grants`
+table have zero callers from any UI. Worse than simple dead code: `issueGrant`
+(`src/lib/verification/grants.ts`) is reachable ONLY via the dead
+`/api/verify/grant` route, so nothing in the running system can ever create a
+grant for `/api/submit`'s existing `redeemGrant` call to consume — the
+"verified submission" tier is structurally unreachable, not just unbuilt.
+
+**Confirmed schema-only, zero code touches them:** `profiles`, `wishlist_items`,
+`saved_comparisons` (migration `0004`) — there is no auth system anywhere in
+this app. `src/components/CompanyOverview.tsx`'s own header comment already
+documents that Compare/Wishlist buttons were deliberately removed rather than
+left greyed out ("a dead control teaches a visitor the product is
+unfinished").
+
+**Confirmed write-only, read by nothing:** `moderation_audit_log` (an
+append-only trigger fires on every hiring_submissions approve/reject,
+migration `0026`'s own header already states nothing queries it) and
+`company_field_observations` (a full per-field provenance ledger for company
+metadata, populated by `store.ts`'s `upsertFieldObservation`, surfaced
+nowhere).
+
+**Confirmed a parallel, unreachable model:** `src/lib/fingerprint/aggregate.ts`
+(529 lines, including the only trend/`improving|declining|stable` machinery
+in the codebase) is imported solely by its own test file. The REAL, live
+scoring model is `src/lib/fingerprint/behavioural.ts` — a drift risk if a
+future change touches one and not the other, since nothing would catch the
+two silently disagreeing.
+
+**Confirmed collected, never read downstream:** `tenure_bucket` and
+`intent_reasons` are collected, validated, and normalized, but no metric,
+panel, or query anywhere reads either back out (`intent_reasons` reaches
+`hiring_events.payload.reasons` via `buildCandidateEvents`, and stops there —
+confirmed via grep across every consumer of hiring-intent events). Both
+fields are optional to submit, so — unlike the `call_duration`/
+`first_interaction_outcome` fix in this same pass — leaving them alone costs
+a submitter nothing; the gap is unrealized potential, not friction.
+
+**Confirmed deliberate, not a gap:** `public_hiring_opportunities` /
+`public_hiring_events` (the anonymity-coarsening views, revised as recently
+as migration `0029` to close a real timing leak) are never queried —
+`src/lib/hiring-intent/timeline.ts` deliberately reads the base tables
+directly via the admin client instead, because it needs day-precision the
+views intentionally coarsen away (D-026). The views exist for a future public
+API surface that does not exist yet, not as an abandoned mistake. Likewise,
+the Likert panel showing only 3 dimension rollups behind the unlock gate
+(D-018) and 7 of the advisor's 13 preference dimensions mapping to `null` in
+`PREFERENCE_TO_EVIDENCE` (no first-party evidence measures salary/growth/
+prestige/etc. today) are both already-reasoned product decisions, not bugs.
+
+**What this session actually fixed, distinct from the list above** (see the
+submit-flow commit for detail): `call_duration`/`first_interaction_outcome`
+were REQUIRED fields blocking submission completion for zero downstream
+product value — made optional, since relaxing a required-field UX constraint
+deletes no code, column, or schema, and directly serves "reduce friction on
+the evidence-acquisition bottleneck." `application_channel` was silently
+discarded server-side for 2 of 3 reporter types while still being asked of
+them in the UI — now hidden for those two, since asking a question whose
+answer is thrown away costs trust in a product whose entire pitch is honest
+data handling. Neither is in the "dormant, kept" category above — both were
+active friction/trust costs on the live submission path, actively fixed, not
+merely documented.
+
+**Explicitly NOT done, considered and rejected as overreach for this pass:**
+a `payment_flag_detail` column to stop collapsing the wizard's existing
+4-way payment-timing answer to a boolean. Verified directly against migration
+history (`0007_reconcile_live_schema.sql`, `0021`) that this collapse is a
+twice-documented DELIBERATE decision, not a bug — `payment_risk`
+(`src/lib/fingerprint/behavioural.ts`) already scores correctly off the
+boolean. Capturing the richer answer would be a genuine, additive enhancement
+to what's measured, not a friction fix — out of scope for a pass whose
+stated priority is user acquisition and evidence quantity, not scoring depth.
+Revisit if a future session is explicitly asked to deepen fraud-signal
+granularity.
+
+**Revisit when:** any dormant item above gets a real caller — at that point
+this entry should be updated to reflect it moved from "dormant" to "live,"
+not deleted (the historical record of why it sat dormant, and for how long,
+stays useful).
+
+---
+
 ## Open questions (decisions *not* yet made)
 
 | # | Question | Blocked on |

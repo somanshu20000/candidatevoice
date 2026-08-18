@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import ShareButton from "@/components/ShareButton";
 import type { HiringSubmission, ApplicationChannel } from "@/types/index";
 import { AlertTriangle, Check } from "lucide-react";
 import { normalizeCompanySlug } from "@/lib/company-slug";
@@ -517,7 +518,11 @@ export default function SubmitPage() {
         form.experience_bucket !== ""
       );
     if (stepKey === "process") return form.stage !== "" && form.outcome !== "";
-    if (stepKey === "timeline") return form.response_time_bucket !== "" && form.last_interaction_gap !== "" && form.call_duration !== "" && form.first_interaction_outcome !== "";
+    // call_duration/first_interaction_outcome are collected but read by no
+    // metric or panel today (their dimension, "Early Rejection", was removed
+    // from the fingerprint model — see src/utils/hqs.ts) — optional so the
+    // step most likely to cause abandonment doesn't block on dead-end fields.
+    if (stepKey === "timeline") return form.response_time_bucket !== "" && form.last_interaction_gap !== "";
     if (stepKey === "details") return form.reason !== "" && form.payment_flag !== "";
     // exit/culture/experience are entirely optional — evidence acquisition is
     // the bottleneck (the same reasoning application_channel and the 0018
@@ -661,6 +666,16 @@ export default function SubmitPage() {
               </ul>
             </div>
 
+            {/* Whoever just submitted is, by construction, someone who knows
+                other real candidates who interviewed at the SAME company —
+                the single most targeted ask for report #2 and #3 on a
+                company that already cleared report #1. */}
+            <p className="text-xs text-ink-faint mb-5">
+              Know someone else who interviewed at{" "}
+              <span className="capitalize">{submittedTo.replace(/-/g, " ")}</span>? Every report
+              helps more once there are a few.
+            </p>
+
             <div className="flex flex-wrap gap-2.5 justify-center">
               <Link
                 href={`/company/${encodeURIComponent(submittedTo)}`}
@@ -668,6 +683,11 @@ export default function SubmitPage() {
               >
                 View {submittedTo.replace(/-/g, " ")}
               </Link>
+              <ShareButton
+                path={`/company/${encodeURIComponent(submittedTo)}`}
+                title={`Hiring reports for ${submittedTo.replace(/-/g, " ")} — CandidateVoice`}
+                label="Invite others to add theirs"
+              />
               <button
                 type="button"
                 onClick={() => {
@@ -798,27 +818,33 @@ export default function SubmitPage() {
                   <option value="8+">8+ years</option>
                 </select>
               </div>
-              <div>
-                <label htmlFor="application-channel" className={LABEL_CLS}>
-                  How did you apply? <span className="text-ink-faint font-normal">(optional)</span>
-                </label>
-                <select
-                  id="application-channel"
-                  value={form.application_channel}
-                  onChange={(e) => set("application_channel", e.target.value as ApplicationChannel | "")}
-                  className={SELECT_CLS}
-                >
-                  <option value="">Prefer not to say</option>
-                  <option value="referral">Referral</option>
-                  <option value="recruiter_outreach">Recruiter reached out to me</option>
-                  <option value="job_board">Job board</option>
-                  <option value="company_website">Company website</option>
-                  <option value="other">Other</option>
-                </select>
-                <p className="text-xs text-ink-faint mt-1.5">
-                  Lets other candidates filter results to people who applied the same way.
-                </p>
-              </div>
+              {/* Candidate-only: the route nulls this server-side for
+                  employee/former_employee reporters regardless (only a
+                  candidate applied for a role), so asking it of the other
+                  two relationships just discards an honest answer. */}
+              {form.relationship === "candidate" && (
+                <div>
+                  <label htmlFor="application-channel" className={LABEL_CLS}>
+                    How did you apply? <span className="text-ink-faint font-normal">(optional)</span>
+                  </label>
+                  <select
+                    id="application-channel"
+                    value={form.application_channel}
+                    onChange={(e) => set("application_channel", e.target.value as ApplicationChannel | "")}
+                    className={SELECT_CLS}
+                  >
+                    <option value="">Prefer not to say</option>
+                    <option value="referral">Referral</option>
+                    <option value="recruiter_outreach">Recruiter reached out to me</option>
+                    <option value="job_board">Job board</option>
+                    <option value="company_website">Company website</option>
+                    <option value="other">Other</option>
+                  </select>
+                  <p className="text-xs text-ink-faint mt-1.5">
+                    Lets other candidates filter results to people who applied the same way.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
@@ -873,9 +899,11 @@ export default function SubmitPage() {
                 </select>
               </div>
               <div>
-                <label htmlFor="call-duration" className={LABEL_CLS}>Call duration</label>
+                <label htmlFor="call-duration" className={LABEL_CLS}>
+                  Call duration <span className="text-ink-faint font-normal">(optional)</span>
+                </label>
                 <select id="call-duration" value={form.call_duration} onChange={(e) => set("call_duration", e.target.value as CallDuration)} className={SELECT_CLS}>
-                  <option value="">Select…</option>
+                  <option value="">Prefer not to say</option>
                   <option value="<2">&lt;2 min</option>
                   <option value="2-5">2–5 min</option>
                   <option value="5-15">5–15 min</option>
@@ -884,9 +912,11 @@ export default function SubmitPage() {
                 </select>
               </div>
               <div>
-                <label htmlFor="first-outcome" className={LABEL_CLS}>First interaction outcome</label>
+                <label htmlFor="first-outcome" className={LABEL_CLS}>
+                  First interaction outcome <span className="text-ink-faint font-normal">(optional)</span>
+                </label>
                 <select id="first-outcome" value={form.first_interaction_outcome} onChange={(e) => set("first_interaction_outcome", e.target.value as FirstInteractionOutcome)} className={SELECT_CLS}>
-                  <option value="">Select…</option>
+                  <option value="">Prefer not to say</option>
                   <option value="continued">Continued</option>
                   <option value="rejected_immediately">Rejected immediately</option>
                   <option value="na">N/A</option>

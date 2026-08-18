@@ -1,6 +1,83 @@
 # NOW — CandidateVoice project state
 
-**Last updated:** 2026-08-17, 6th pass (acquisition pipeline built end-to-end, D-029 — read this section first, in full, before touching code).
+**Last updated:** 2026-08-17, 7th pass (submit-friction + evidence-conversion fixes, D-030 — read this section first, in full, before touching code).
+
+## This pass: "get real users + real evidence" — friction cuts + conversion, no migration
+
+Production diagnosis that drove this pass (live-verified): 337 organizations,
+6 `hiring_submissions` (0 approved — 3 of the 5 pending belong to a
+`"ZZ Intent Demo"` test org never cleaned up; only Xcelit and Kodehash Tech
+have one genuinely real report each), 0 external reports. Every scoring
+dimension needs `effectiveN` 3–8 to render — almost nothing shows for a real
+visitor today. Two Explore-agent audits (data collected-vs-displayed; schema
+read/write matrix) plus a Plan-agent synthesis, all cross-checked by direct
+reads of migration history, drove the scope below. User direction: prioritize
+acquisition/friction over product depth; do not remove anything that exists.
+
+**Shipped, no migration, all reversible:**
+- `call_duration`/`first_interaction_outcome` are now OPTIONAL on the submit
+  wizard (`src/app/submit/page.tsx`'s `canAdvance()`, `src/app/api/submit/route.ts`'s
+  `INTERVIEW_OPTIONAL_FIELDS`). They were required and read by **zero**
+  metric/panel — their dimension ("Early Rejection") was removed from the
+  fingerprint model. Pure friction removal on the step most likely to cause
+  abandonment.
+- `application_channel` no longer shown to employee/former_employee
+  reporters (was asked, then silently nulled server-side for 2 of 3
+  relationships — now hidden client-side to match).
+- New `src/components/ShareButton.tsx` — native `navigator.share`/clipboard
+  only, no attribution, no tracked referral (would cut against D-007's
+  anonymity model). Wired into the post-submit confirmation screen (asks the
+  person who JUST reported to invite others who interviewed at the *same*
+  company — the most targeted ask for report #2/#3 on a company that already
+  cleared report #1) and `CompanyOverview.tsx`'s `CompanyActions`.
+- `generateMetadata` added to `src/app/company/[slug]/page.tsx` — every
+  shared company-page link previously rendered the same generic site-wide OG
+  card regardless of company. Now per-company title/description/OG/Twitter
+  tags. Minimal: one RPC + one `organizations` select, no report count baked
+  in (an OG crawler caches aggressively; a live number would go stale fast —
+  evergreen copy instead).
+- New `src/app/legal/page.tsx` scaffold + Footer link. Real content for
+  everything that's just a restatement of an already-enforced invariant
+  (no PII, closed-enum only, month-coarsened dates, suppression floors);
+  clearly-bracketed placeholders (`[GRIEVANCE OFFICER NAME]`,
+  `[REGISTERED CONTACT ADDRESS]`, `[RESPONSE SLA]`) for the one part an
+  engineer must not fabricate — India's IT Rules 2021 requires a named
+  individual + real contact channel. **Do not link this prominently or
+  promote publicly until a human fills in and confirms the real content.**
+- `DECISIONS.md` D-030 — names every dormant subsystem found by the two
+  audits (`/api/verify/*` + `verification_grants` — structurally
+  unreachable, not just unused; accounts/wishlist schema with no auth
+  system; `fingerprint/aggregate.ts`, a 529-line parallel dead scoring
+  model; `moderation_audit_log`/`company_field_observations`, write-only;
+  7/13 advisor preference dimensions permanently `not_measured`) —
+  **nothing removed**, per explicit user direction.
+
+**Considered, explicitly deferred with reasoning (see D-030):** a
+`payment_flag_detail` migration to stop collapsing the wizard's 4-way
+payment-timing answer to a boolean. Verified directly against migration
+`0007`/`0021` that the boolean collapse is a twice-documented DELIBERATE
+decision, not a bug (`payment_risk` already scores correctly off it) —
+capturing the richer answer is a genuine scoring enhancement, not a friction
+fix, out of scope for an acquisition-focused pass.
+
+**Verification:** tsc clean, 795 tests pass (4 new). Production build clean;
+`/legal` and the new share buttons render correctly (curl-verified against
+the local dev server — `generateMetadata` confirmed producing real
+per-company OG tags on `/company/razorpay`). **Not verified**: the submit
+wizard's step-3 rendering of the two new "(optional)" labels — that step
+only mounts after client-side navigation past steps 1–2, which curl against
+SSR output can't reach, and the Chrome browser tool was not connected this
+session. The `canAdvance()`/route-validation logic is covered by the
+extended `tests/submit-validators.test.ts` and a direct code read, but a
+human should click through the candidate wizard once before relying on this.
+
+**Not done, explicitly the user's own action (unchanged from D-029):** reject
+the 3 `"ZZ Intent Demo"` pending rows, approve the 2 real ones; register the
+real Reddit credential; decide the `acquisition_enabled` revert on
+glassdoor/ambitionbox/linkedin; the `ADMIN_SECRET`-not-configured finding
+from the naukri.com pass.
+
+---
 
 ## The acquisition pipeline is real and triggerable, not adapters in isolation (D-029)
 

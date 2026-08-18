@@ -62,6 +62,41 @@ interface Props {
   searchParams?: { experience?: string; channel?: string };
 }
 
+/**
+ * Every company page shared today a link renders the same generic site-wide
+ * card (root layout.tsx's static title/description) regardless of which
+ * company it's about — the exact moment a link gets forwarded is when a
+ * per-company card would raise click-through most.
+ *
+ * Deliberately minimal: ONE RPC + ONE org select (the first two steps
+ * loadCompanyProfile also does, without its four metadata-only follow-up
+ * queries — this only needs a name). No report count in the copy: an OG
+ * crawler caches aggressively, so a live number baked in here would go stale
+ * the moment more reports land — evergreen copy stays accurate indefinitely.
+ */
+export async function generateMetadata({ params }: Props) {
+  const slug = normalizeCompanySlug(decodeURIComponent(params.slug));
+  // Untyped cast, same reason read.ts's loadCompanyProfile needs it:
+  // resolve_organization isn't in the generated Database type.
+  const supabase = createClient() as unknown as SupabaseClient;
+  const { data: orgId } = await supabase.rpc("resolve_organization", { p_slug: slug });
+  if (!orgId) return {};
+
+  const { data: org } = await supabase.from("organizations").select("display_name").eq("id", orgId).maybeSingle();
+  if (!org) return {};
+
+  const name = (org as { display_name: string }).display_name;
+  const title = `${name} — Hiring Reports | CandidateVoice`;
+  const description = `Anonymous, structured hiring reports for ${name} — interview process, response times, and outcomes from real candidates. No names, no spin.`;
+
+  return {
+    title,
+    description,
+    openGraph: { title, description, type: "website" },
+    twitter: { card: "summary", title, description },
+  };
+}
+
 const COHORT_SELECT_CLS =
   "w-full bg-paper border border-rule text-ink-soft text-sm rounded-sm px-3 py-2 shadow-press focus:outline-none focus:border-accent transition-colors";
 

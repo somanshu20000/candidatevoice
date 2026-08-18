@@ -14,7 +14,7 @@ import { sanitizeAndTruncate, FIELD_LIMITS } from "@/utils/sanitize";
 import { checkAndRecordRateLimit } from "@/lib/rate-limit";
 import { getClientIp } from "@/lib/client-ip";
 import { FACET_KEYS, EMOTION_KEYS, type FacetKey, type EmotionKey } from "@/lib/fingerprint/taxonomy";
-import type { ApplicationChannel, ReporterType } from "@/types/index";
+import type { ApplicationChannel, ReporterType, CallDuration, FirstInteractionOutcome } from "@/types/index";
 import { findOrCreateOpportunity, recordHiringEvents } from "@/lib/hiring-intent/match";
 import { buildCandidateEvents } from "@/lib/hiring-intent/events";
 import { redeemGrant } from "@/lib/verification/redeem";
@@ -138,6 +138,14 @@ const SALARY_FIELDS: { key: string; allowed: readonly string[] }[] = [
   { key: "salary_range_disclosed", allowed: VALID_SALARY_RANGE_DISCLOSURES },
 ];
 
+// Optional interview fields — collected but read by no metric/panel today
+// (see the required-fields comment above POST()). Kept as real, validated
+// columns; only the required-ness changed.
+const INTERVIEW_OPTIONAL_FIELDS: { key: string; allowed: readonly string[] }[] = [
+  { key: "call_duration", allowed: VALID_CALL_DURATIONS },
+  { key: "first_interaction_outcome", allowed: VALID_FIRST_INTERACTION_OUTCOMES },
+];
+
 // Tenure stages (migration 0020/0021). Mirrors the CHECK constraints;
 // tests/submit-validators.test.ts asserts the three-way sync.
 const VALID_REPORTER_TYPES: readonly ReporterType[] = ["candidate", "employee", "former_employee"];
@@ -242,20 +250,24 @@ export async function POST(req: NextRequest) {
         : "candidate";
     const isCandidate = reporterType === "candidate";
 
-    // The 8 interview-only fields (migration 0021 made 4 of them nullable at
-    // the DB precisely for this): a candidate report must have real values,
-    // exactly as before. An employee/former_employee report never went through
-    // an interview process here, so these fields are not required — and are
-    // forced to null below regardless of what the client sent, so a stray
-    // client-side bug can never write interview data under a non-candidate row.
+    // The 6 interview-only REQUIRED fields: a candidate report must have real
+    // values, exactly as before. An employee/former_employee report never went
+    // through an interview process here, so these fields are not required —
+    // and are forced to null below regardless of what the client sent, so a
+    // stray client-side bug can never write interview data under a
+    // non-candidate row.
+    //
+    // call_duration/first_interaction_outcome are deliberately NOT in this
+    // required list (see the optional-enum block below): they're read by no
+    // metric or panel today — their "Early Rejection" dimension was removed
+    // from the fingerprint model (src/utils/hqs.ts) — so requiring an answer
+    // on the step most likely to cause abandonment bought nothing.
     if (
       isCandidate &&
       (!VALID_STAGES.includes(String(body.stage ?? "")) ||
         !VALID_OUTCOMES.includes(String(body.outcome ?? "")) ||
         !VALID_RESPONSE_TIME_BUCKETS.includes(String(body.response_time_bucket ?? "")) ||
         !VALID_LAST_INTERACTION_GAPS.includes(String(body.last_interaction_gap ?? "")) ||
-        !VALID_CALL_DURATIONS.includes(String(body.call_duration ?? "")) ||
-        !VALID_FIRST_INTERACTION_OUTCOMES.includes(String(body.first_interaction_outcome ?? "")) ||
         !VALID_REASONS.includes(String(body.reason ?? "")))
     ) {
       return NextResponse.json({ error: "Invalid field values." }, { status: 400 });
@@ -277,6 +289,21 @@ export async function POST(req: NextRequest) {
     const channelValidation = validateApplicationChannel(body.application_channel);
     if (!channelValidation.ok) {
       return NextResponse.json({ error: channelValidation.error }, { status: 400 });
+    }
+
+    // call_duration/first_interaction_outcome — now optional (see the
+    // required-fields comment above for why). Same candidate-gate shape as
+    // SALARY_FIELDS: forced null for a non-candidate report regardless of
+    // what the client sent.
+    const interviewOptionalValues: Record<string, string | null> = {};
+    for (const f of INTERVIEW_OPTIONAL_FIELDS) {
+      if (!isCandidate) {
+        interviewOptionalValues[f.key] = null;
+        continue;
+      }
+      const r = validateOptionalEnum((body as Record<string, unknown>)[f.key], f.allowed, f.key);
+      if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
+      interviewOptionalValues[f.key] = r.value;
     }
 
     // Compensation privacy (0018) — CANDIDATE-KNOWABLE by definition (0018's own
@@ -319,8 +346,8 @@ export async function POST(req: NextRequest) {
       outcome: isCandidate ? body.outcome : null,
       response_time_bucket: isCandidate ? body.response_time_bucket : null,
       last_interaction_gap: isCandidate ? body.last_interaction_gap : null,
-      call_duration: isCandidate ? body.call_duration : null,
-      first_interaction_outcome: isCandidate ? body.first_interaction_outcome : null,
+      call_duration: interviewOptionalValues.call_duration as CallDuration | null,
+      first_interaction_outcome: interviewOptionalValues.first_interaction_outcome as FirstInteractionOutcome | null,
       reason: isCandidate ? String(body.reason ?? "").trim() : null,
       // payment_flag is NOT NULL at the DB; false is the honest default for a
       // question that doesn't apply outside the candidate flow. The engine's

@@ -184,3 +184,38 @@ describe("tenure-stage enum sync (migration 0020)", () => {
     expect(ROUTE.reporter_type).toContain("candidate");
   });
 });
+
+describe("interview-optional-field enum sync (call_duration / first_interaction_outcome)", () => {
+  // These two were REQUIRED until this pass — now optional (see
+  // src/app/api/submit/route.ts's INTERVIEW_OPTIONAL_FIELDS comment: read by
+  // no metric or panel today, so requiring them bought nothing but
+  // abandonment risk on the step most likely to lose a submitter). Same
+  // three-copies drift risk as every other enum here: DB CHECK, the route's
+  // VALID_* arrays, the TS union in types/index.
+  const ROUTE = {
+    call_duration: ["<2", "2-5", "5-15", "15+", "na"],
+    first_interaction_outcome: ["continued", "rejected_immediately", "na"],
+  };
+
+  // types/index.ts's CallDuration / FirstInteractionOutcome unions.
+  const TYPES_INDEX = {
+    call_duration: ["<2", "2-5", "5-15", "15+", "na"],
+    first_interaction_outcome: ["continued", "rejected_immediately", "na"],
+  };
+
+  it.each(Object.keys(ROUTE))("%s matches the TS union in types/index.ts", (field) => {
+    const k = field as keyof typeof ROUTE;
+    expect([...ROUTE[k]].sort()).toEqual([...TYPES_INDEX[k]].sort());
+  });
+
+  it("is optional — unlike before this pass, absence is valid, not rejected", () => {
+    for (const raw of [undefined, null, ""]) {
+      expect(raw === undefined || raw === null || raw === "").toBe(true);
+    }
+  });
+
+  it("rejects a present-but-unknown value — still validated, just not required", () => {
+    expect(ROUTE.call_duration.includes("bogus")).toBe(false);
+    expect(ROUTE.first_interaction_outcome.includes("bogus")).toBe(false);
+  });
+});
