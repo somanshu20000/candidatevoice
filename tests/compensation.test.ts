@@ -33,6 +33,11 @@ function item(fields: Partial<EvidenceItem> & Pick<EvidenceItem, "id">): Evidenc
     tenureBucket: null,
     conductEnvironment: null,
     verificationTier: "unverified",
+    outreachQuality: null,
+    sensitiveInfoRequested: null,
+    sensitiveInfoStage: null,
+    sensitiveInfoPurposeExplained: null,
+    sensitiveInfoNecessaryPerceived: null,
     ...fields,
   };
 }

@@ -1,8 +1,87 @@
 # NOW — CandidateVoice project state
 
-**Last updated:** 2026-08-17, 7th pass (submit-friction + evidence-conversion fixes, D-030 — read this section first, in full, before touching code).
+**Last updated:** 2026-08-21, 8th pass (Recruitment Process Intelligence, D-031 — read this section first, in full, before touching code).
 
-## This pass: "get real users + real evidence" — friction cuts + conversion, no migration
+## This pass: Recruitment Process Intelligence — outreach quality & information-request behaviour (D-031)
+
+New candidate-facing concept: CandidateVoice's original complaint was that
+candidates get recruiter outreach with no evidence anyone looked at their
+profile, and go through interview processes that ask for personal documents
+with no structured way to say so happened. Built as the smallest vertical
+slice, not the full four-category brief — see D-031 for the exact scope
+reasoning (two of the four categories were already covered by existing
+Likert facets/behavioural dimensions; "candidate time waste" is deliberately
+deferred as its own future migration).
+
+**Shipped, migration `0033` (NOT YET APPLIED TO PRODUCTION — see below):**
+- 5 new first-party-only, nullable columns on `hiring_submissions`:
+  `outreach_quality` (one enum collapsing "reviewed my profile"/"role
+  matched"/"obvious mismatch" into one ladder), `sensitive_info_requested`
+  (Aadhaar/PAN/bank details/salary slips/other/none), `sensitive_info_stage`
+  (mirrors `salary_proof_stage`'s ladder), `sensitive_info_purpose_explained`,
+  `sensitive_info_necessary_perceived` (boolean — the candidate's OWN
+  subjective read, never a platform verdict).
+- `create or replace function hiring_submissions_guard_immutable()` extended
+  to lock all 5 new columns (mirrors 0027's extension pattern exactly).
+  `public_submissions` view and `submit_hiring_report` RPC both redefined to
+  carry them.
+- **Explicit product rule, mechanically enforced**: the schema/engine record
+  WHAT was asked and WHEN, never a legal verdict. No `illegal`/`lawful`
+  enum values exist — `tests/submit-validators.test.ts` asserts this directly.
+- New `src/lib/fingerprint/recruitmentIntel.ts` — a SEPARATE fingerprint
+  object from `behavioural.ts` (not folded into the existing "higher is
+  better" 6-dimension axis). Two metrics as plain 0..1 RATES, never inverted
+  into a score: `profile_research_rate`, `sensitive_info_request_rate` (same
+  2-source-OR-effectiveN≥3 corroboration gate as Payment Risk — a single
+  accusation must never render as a company-level rate).
+- `src/app/api/submit/route.ts` + `src/app/submit/page.tsx` — new fields in
+  the "Details" step, candidate-only (gated exactly like `SALARY_FIELDS`),
+  all optional.
+- `src/app/company/[slug]/page.tsx` — new `RecruitmentIntelPanel`, self-
+  suppressing, jurisdiction-neutral copy deliberately mirroring
+  `CompensationPanel`'s precedent ("reports what happened, does not give
+  legal advice").
+- Tests: `tests/fingerprint-recruitment-intel.test.ts` (new, 12 tests),
+  `tests/submit-validators.test.ts` enum-sync block (new), 
+  `tests/db-hiring-submissions-immutability.test.ts` extended for 0033's
+  guard redefinition. Every pre-existing `EvidenceItem`/`RawFirstPartyRow`
+  test factory across 14 files updated for the 5 new required fields.
+
+**Verified:** `npx tsc --noEmit` clean; `npx vitest run` — 822/822 pass (up
+from 795); `npm run build` clean, new route sizes correct. Local dev server
+(`localhost:3001`): `/company/razorpay` returns 200 and correctly
+self-suppresses BOTH `CompensationPanel` and the new `RecruitmentIntelPanel`
+(razorpay has zero evidence — "No CandidateVoice hiring reports yet" —
+confirming the panel doesn't crash on the empty-evidence path, not that it's
+broken). **Not verified:** the actual submit-wizard UI for the new fields —
+they render on the "Details" step (step 4 of the candidate flow), which only
+mounts client-side after navigating past steps 1–3; no browser tool was
+connected this session, same disclosed limitation as the 7th pass. A live
+end-to-end submit → moderate → company-page-renders-a-real-rate cycle (the
+kind of acceptance test earlier milestones like D-028/D-029 ran) was **not**
+performed — recommend running it once real reports start carrying these
+fields.
+
+**NOT applied to production**: migration `0033` is written and structurally
+tested but not run against the live Supabase project — applying migrations
+has been a human/explicit-instruction step throughout this project's history
+(see M5.4's precedent). Apply it before this feature can collect anything
+live.
+
+**Explicitly deferred, not built this pass** (see D-031 for full reasoning):
+candidate time-waste fields (rounds/travel/rescheduling/virtual-interview
+availability) — a new-enough category to earn its own migration;
+`early_id_request_rate` metric (reads the already-collected
+`sensitive_info_stage` column, held back to ship alongside the time-waste
+migration rather than in two half-steps); cohort-scoped Recruitment Process
+Intelligence (the company page's cohort selector recomputes the behavioural
+fingerprint but not this one yet).
+
+---
+
+**Previous pass — 2026-08-17, 7th pass** (submit-friction + evidence-conversion fixes, D-030).
+
+## Prior pass: "get real users + real evidence" — friction cuts + conversion, no migration
 
 Production diagnosis that drove this pass (live-verified): 337 organizations,
 6 `hiring_submissions` (0 approved — 3 of the 5 pending belong to a

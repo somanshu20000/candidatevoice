@@ -1238,6 +1238,102 @@ stays useful).
 
 ---
 
+## D-031 · Recruitment Process Intelligence — outreach quality & information-request behaviour, FACT-only
+
+CandidateVoice's founding complaint was never just "hiring processes are
+slow" — it is that candidates receive recruiter outreach with no evidence
+anyone looked at their profile, and go through interview processes that ask
+for personal documents with no structured way to say so happened. This
+decision adds that as first-class, first-party evidence (migration `0033`),
+scoped as a deliberately small vertical slice rather than the full brief.
+
+**What was built, and why it's smaller than the four-category brief:**
+
+Two of the four requested categories were **already fully covered** by
+existing evidence, not missing:
+- **"Process quality"** (recruiter/interviewer preparedness, clear role
+  description, salary expectations communicated, ghosting, time to
+  response/outcome) is the `recruiter_professionalism` / `interviewer_preparedness`
+  / `role_clarity` / `compensation_clarity` Likert facets (`0004`/`0017`) and
+  the `ghosting` / `response_speed` behavioural dimensions
+  (`src/lib/fingerprint/behavioural.ts`). Adding new columns for these would
+  have duplicated an existing, working measurement — the honest fix was
+  documentation, not schema.
+- The remaining two categories got a real vertical slice:
+  - **Outreach quality** → one column, `outreach_quality`, collapsing the
+    brief's four separate questions ("reviewed my profile", "role matched",
+    "was it relevant", "obvious mismatch") into one candidate-answerable
+    ladder — the same collapsing technique `salary_history_stage` (`0018`)
+    already uses.
+  - **Information-request behaviour** → four columns:
+    `sensitive_info_requested` (Aadhaar/PAN/bank details/salary slips/other),
+    `sensitive_info_stage` (mirrors `salary_proof_stage`'s ladder exactly),
+    `sensitive_info_purpose_explained`, and `sensitive_info_necessary_perceived`
+    — the last one explicitly the candidate's OWN subjective read of their
+    own experience, never a platform-computed verdict.
+- **"Candidate time waste"** (screening/interview duration, rounds,
+  rescheduling, physical travel, virtual-interview availability) is
+  genuinely new scope and was **deliberately deferred**, not built. It needs
+  its own migration and is a large enough surface (5+ columns of its own) to
+  earn a dedicated pass rather than being folded in to keep this one small.
+  Revisit if a future session is explicitly asked to build it.
+
+**The load-bearing product rule — record the fact, never the verdict.**
+Aadhaar/PAN/bank-detail collection law varies by jurisdiction and purpose:
+KYC for payroll after a written offer is ordinary; the same document demanded
+at screening, before any offer exists, is what candidates report as coercive.
+This schema and its engine record WHAT was asked for and WHEN, and go no
+further — the exact same jurisdiction-neutral discipline `CompensationPanel`
+(`0018`) already established for salary-history requests ("we report what
+companies did, and does not give legal advice"). A legal-interpretation layer
+over these facts does not exist and is explicitly out of scope here; if one
+is ever built, it must be a SEPARATE, explicitly sourced addition layered on
+top of this data, never baked into the enum values or the aggregate
+computation. `tests/submit-validators.test.ts` mechanically asserts the
+allowlists contain no `illegal`/`lawful`/`violation`-shaped value.
+
+**Recruitment Process Intelligence is a SEPARATE fingerprint object, not
+folded into the existing 6-dimension behavioural fingerprint.**
+`src/lib/fingerprint/behavioural.ts` inverts every dimension onto one
+"higher is always better" 0..100 axis (ghosting and payment_risk are both
+inverted to fit it). That framing is itself a value judgment, which is
+precisely what this decision says not to make. `recruitmentIntel.ts` instead
+reports plain 0..1 RATES — "38% of reports who answered said X happened" —
+with no good/bad direction and no Bar/tone coloring on the company-page
+panel. `profile_research_rate` is a positive-framed count (no extra gate,
+same as `ghosting`/`response_speed`); `sensitive_info_request_rate` gets the
+exact same OR-corroboration gate as Payment Risk
+(`SENSITIVE_INFO_MIN_SOURCES = 2` OR `effectiveN >= 3`) — a single accusation
+must never render as a company-level rate, same reasoning D-008/behavioural.ts
+already established for Payment Risk.
+
+**Reused, not duplicated:** same weightedRate/describeBase/kishEffectiveN
+primitives (D-001), same first-party-only field-asymmetry pattern as every
+column since `0014` (external_reports has no equivalent and never will — a
+forum post cannot structurally know what stage a poster was asked for a PAN
+card), same "NULL is not an answer, `'none'` is" convention as every enum
+column since `0018`, same immutability-guard extension pattern as `0027`
+(`tests/db-hiring-submissions-immutability.test.ts` now covers `0033`'s
+redefinition, structural-parity only — no live Supabase in this
+environment), same candidate-only gate at the route/form layer as
+`SALARY_FIELDS`.
+
+**Explicitly not built in this pass, and why:** cohort-scoped Recruitment
+Process Intelligence (the company page's "Evidence Match" cohort selector
+does not yet recompute this fingerprint the way it recomputes the behavioural
+one) — a real gap, but a small enough one to defer rather than block this
+slice on it. An `early_id_request_rate` metric (Aadhaar/PAN specifically,
+gated to `screening`/`interview` stage — i.e. before any offer) was named as
+a headline example metric in the brief but not built: it is a straightforward
+follow-on reading the same `sensitive_info_stage` column already collected,
+deliberately left for whenever the time-waste migration lands so both ship
+together rather than shipping the engine in two half-steps.
+
+**Revisit when:** the time-waste migration is explicitly requested, or when
+`early_id_request_rate` / cohort-scoped recruitment intelligence is asked for.
+
+---
+
 ## Open questions (decisions *not* yet made)
 
 | # | Question | Blocked on |

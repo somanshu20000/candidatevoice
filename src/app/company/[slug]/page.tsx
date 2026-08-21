@@ -23,6 +23,8 @@ import type { BehaviouralDimensionScore } from "@/lib/fingerprint/behavioural";
 import { buildForecast, hasAnyForecast } from "@/lib/fingerprint/forecast";
 import { buildCompensationProfile, computePrivacyScore } from "@/lib/fingerprint/compensation";
 import type { CompensationProfile, PrivacyScoreResult } from "@/lib/fingerprint/compensation";
+import { buildRecruitmentIntelFingerprint } from "@/lib/fingerprint/recruitmentIntel";
+import type { RecruitmentIntelFingerprint } from "@/lib/fingerprint/recruitmentIntel";
 import { buildOffboardingProfile, computeExitIntegrityScore } from "@/lib/fingerprint/offboarding";
 import type { OffboardingProfile, ExitIntegrityResult } from "@/lib/fingerprint/offboarding";
 import { cultureSignal } from "@/lib/fingerprint/culture";
@@ -420,6 +422,48 @@ function CompensationPanel({ profile, score }: { profile: CompensationProfile; s
       <p className="text-[10px] text-ink-faint mt-4 leading-relaxed">
         Salary-history rules vary by jurisdiction — restricted in some, lawful in others.
         CandidateVoice reports what companies did, and does not give legal advice.
+        Reports where a candidate skipped a question are excluded, never counted as a &ldquo;no&rdquo;.
+      </p>
+    </section>
+  );
+}
+
+/**
+ * Recruitment Process Intelligence (D-031) — self-suppressing like
+ * CompensationPanel, whose jurisdiction-neutral copy pattern this
+ * deliberately follows: report what candidates said happened, never a
+ * verdict on it. rate is a plain 0..1 share, NOT a "higher is better" score
+ * — no Bar/tone coloring, unlike every other panel on this page, because
+ * there is no good/bad direction to signal (see recruitmentIntel.ts's header).
+ */
+function RecruitmentIntelPanel({ fingerprint }: { fingerprint: RecruitmentIntelFingerprint }) {
+  const shown = fingerprint.metrics.filter((m) => !m.suppressed && m.rate !== null);
+  if (shown.length === 0) return null;
+  return (
+    <section className="border border-rule bg-paper-sheet rounded-sm p-6 sm:p-8 mb-8 shadow-sheet">
+      <h2 className="font-serif text-lg sm:text-xl text-ink mb-1">Recruitment process</h2>
+      <p className="text-xs text-ink-muted mb-5">
+        What candidates reported about outreach and information requests. Plain shares, not a score —
+        this panel makes no judgment about whether a given rate is good, bad, or lawful.
+      </p>
+      <div className="space-y-3">
+        {shown.map((m) => (
+          <div key={m.key} className="py-1 border-b border-rule last:border-0">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-sm text-ink-soft">{m.label}</span>
+              <span className="text-right shrink-0">
+                <span className="font-mono text-sm text-ink tnum">{Math.round(m.rate! * 100)}%</span>
+                <span className="block text-[10px] font-mono text-ink-faint tnum">
+                  {m.metric.rawNumerator} of {m.metric.rawDenominator} reports
+                </span>
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="text-[10px] text-ink-faint mt-4 leading-relaxed">
+        Document-request laws vary by jurisdiction and purpose — CandidateVoice reports what
+        candidates said was asked and when, and does not give legal advice.
         Reports where a candidate skipped a question are excluded, never counted as a &ldquo;no&rdquo;.
       </p>
     </section>
@@ -878,6 +922,8 @@ export default async function CompanyPage({ params, searchParams }: Props) {
   // Compensation transparency & privacy (0018) — same engine, own reduction.
   const compensation = buildCompensationProfile(items);
   const privacyScore = computePrivacyScore(compensation);
+  // Recruitment Process Intelligence (0033, D-031) — same engine, own reduction.
+  const recruitmentIntel = buildRecruitmentIntelFingerprint(evidenceSet!);
   // Tenure stages (0020) — offboarding/culture/conduct, same engine again.
   const offboarding = buildOffboardingProfile(items);
   const exitIntegrity = computeExitIntegrityScore(offboarding);
@@ -955,6 +1001,10 @@ export default async function CompanyPage({ params, searchParams }: Props) {
         {/* Pay transparency & privacy — self-suppressing: renders nothing until
             at least one dimension clears its floor. */}
         <CompensationPanel profile={compensation} score={privacyScore} />
+
+        {/* Outreach quality & information requests — self-suppressing: renders
+            nothing until a metric clears its floor. */}
+        <RecruitmentIntelPanel fingerprint={recruitmentIntel} />
 
         {/* Tenure-stage panels (0020) — from employees and former employees,
             each self-suppressing below its own floor. Ordered safest-first. */}

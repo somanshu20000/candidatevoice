@@ -165,6 +165,32 @@ const TENURE_FIELDS: { key: string; allowed: readonly string[] }[] = [
   { key: "conduct_environment", allowed: VALID_CONDUCT_ENVIRONMENTS },
 ];
 
+// Recruitment Process Intelligence (migration 0033, D-031). Mirrors the CHECK
+// constraints; tests/submit-validators.test.ts asserts the sync. Candidate-
+// knowable by definition (outreach and what was asked of YOU during hiring),
+// so gated on isCandidate exactly like SALARY_FIELDS below.
+const VALID_OUTREACH_QUALITIES = ["profile_reviewed_relevant", "generic_outreach", "obvious_mismatch"];
+const VALID_SENSITIVE_INFO_REQUESTED = ["none", "aadhaar", "pan", "bank_details", "salary_slips", "other"];
+const VALID_SENSITIVE_INFO_STAGES = ["none", "screening", "interview", "before_offer", "after_offer"];
+
+const RECRUITMENT_INTEL_FIELDS: { key: string; allowed: readonly string[] }[] = [
+  { key: "outreach_quality", allowed: VALID_OUTREACH_QUALITIES },
+  { key: "sensitive_info_requested", allowed: VALID_SENSITIVE_INFO_REQUESTED },
+  { key: "sensitive_info_stage", allowed: VALID_SENSITIVE_INFO_STAGES },
+];
+
+/**
+ * Optional boolean — same "absent is valid" contract as validateOptionalEnum,
+ * for the two recruitment-intel yes/no fields. A present-but-non-boolean
+ * value is rejected rather than coerced, so a tampered payload can't smuggle
+ * a truthy string past the type.
+ */
+function validateOptionalBoolean(raw: unknown, field: string): { ok: true; value: boolean | null } | { ok: false; error: string } {
+  if (raw === undefined || raw === null || raw === "") return { ok: true, value: null };
+  if (typeof raw !== "boolean") return { ok: false, error: `unknown ${field}: ${String(raw)}` };
+  return { ok: true, value: raw };
+}
+
 /**
  * Company identity (migration 0022). This route NEVER resolves an
  * organization from free-text company input and NEVER silently creates one —
@@ -334,6 +360,31 @@ export async function POST(req: NextRequest) {
       tenureValues[f.key] = r.value;
     }
 
+    // Recruitment Process Intelligence (0033) — candidate-knowable only, same
+    // gate as SALARY_FIELDS: forced null for a non-candidate report.
+    const recruitmentIntelValues: Record<string, string | null> = {};
+    for (const f of RECRUITMENT_INTEL_FIELDS) {
+      if (!isCandidate) {
+        recruitmentIntelValues[f.key] = null;
+        continue;
+      }
+      const r = validateOptionalEnum((body as Record<string, unknown>)[f.key], f.allowed, f.key);
+      if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
+      recruitmentIntelValues[f.key] = r.value;
+    }
+    const purposeExplainedValidation = isCandidate
+      ? validateOptionalBoolean(body.sensitive_info_purpose_explained, "sensitive_info_purpose_explained")
+      : { ok: true as const, value: null };
+    if (!purposeExplainedValidation.ok) {
+      return NextResponse.json({ error: purposeExplainedValidation.error }, { status: 400 });
+    }
+    const necessaryPerceivedValidation = isCandidate
+      ? validateOptionalBoolean(body.sensitive_info_necessary_perceived, "sensitive_info_necessary_perceived")
+      : { ok: true as const, value: null };
+    if (!necessaryPerceivedValidation.ok) {
+      return NextResponse.json({ error: necessaryPerceivedValidation.error }, { status: 400 });
+    }
+
     const payload: SubmissionInsert = {
       company: normalizeCompanySlug(sanitizeAndTruncate(String(body.company ?? ""), 100)),
       role: sanitizeAndTruncate(String(body.role ?? ""), FIELD_LIMITS.ROLE_TITLE),
@@ -342,6 +393,9 @@ export async function POST(req: NextRequest) {
       application_channel: isCandidate ? channelValidation.value : null,
       ...salaryValues,
       ...tenureValues,
+      ...recruitmentIntelValues,
+      sensitive_info_purpose_explained: purposeExplainedValidation.value,
+      sensitive_info_necessary_perceived: necessaryPerceivedValidation.value,
       stage: isCandidate ? body.stage : null,
       outcome: isCandidate ? body.outcome : null,
       response_time_bucket: isCandidate ? body.response_time_bucket : null,

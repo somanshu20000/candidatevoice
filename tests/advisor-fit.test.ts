@@ -47,6 +47,11 @@ function evidenceItem(fields: Partial<EvidenceItem> & Pick<EvidenceItem, "id" | 
     conductEnvironment: null,
     verificationTier: "unverified",
     extractionConfidence: null,
+    outreachQuality: null,
+    sensitiveInfoRequested: null,
+    sensitiveInfoStage: null,
+    sensitiveInfoPurposeExplained: null,
+    sensitiveInfoNecessaryPerceived: null,
     ...fields,
   };
 }

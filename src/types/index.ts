@@ -78,6 +78,22 @@ export type TenureBucket = "0-1" | "1-3" | "3-5" | "5-8" | "8+";
  * harassment/toxicity and a current employee at a small firm is identifiable.
  */
 export type ConductEnvironment = "respectful" | "mostly_ok" | "some_concerns" | "serious_concerns" | "na";
+
+/**
+ * Recruitment Process Intelligence (migration 0033). First-party only, all
+ * optional, and "NULL is not an answer" like every field above: null = did
+ * not answer (excluded from every metric), 'none' is a real, counted answer.
+ * See DECISIONS.md D-031 for the FACT → metric → interpretation separation —
+ * these types record what happened, never a legal verdict about it.
+ */
+/** Was the candidate contacted with evidence of research, or a mismatch?
+ *  Meaningful only for outreach the candidate did not initiate. */
+export type OutreachQuality = "profile_reviewed_relevant" | "generic_outreach" | "obvious_mismatch";
+/** What category of sensitive personal document/information was requested. */
+export type SensitiveInfoRequested = "none" | "aadhaar" | "pan" | "bank_details" | "salary_slips" | "other";
+/** When it was requested. Same ladder shape as SalaryProofStage. */
+export type SensitiveInfoStage = "none" | "screening" | "interview" | "before_offer" | "after_offer";
+
 /**
  * The furthest stage a submission reached, as shown on a card.
  *
@@ -156,6 +172,14 @@ export interface HiringSubmission {
    *  Evidence Engine ignores it when weighting. Defaults to 'unverified';
    *  immutable once stamped (0027's guard). See src/lib/verification. */
   verification_tier?: VerificationTier | null;
+  /** Recruitment Process Intelligence (migration 0033). All optional; null
+   *  means unanswered, never "no"/"none" (those are real answers). See
+   *  DECISIONS.md D-031. */
+  outreach_quality?: OutreachQuality | null;
+  sensitive_info_requested?: SensitiveInfoRequested | null;
+  sensitive_info_stage?: SensitiveInfoStage | null;
+  sensitive_info_purpose_explained?: boolean | null;
+  sensitive_info_necessary_perceived?: boolean | null;
 }
 
 export type Database = {

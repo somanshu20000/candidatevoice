@@ -52,5 +52,13 @@ export function minimalEvidenceItem(
     // submission's provenance — 'unverified' is the only honest value, and it
     // is never a weight anyway (D-022).
     verificationTier: "unverified",
+    // Same reasoning as verificationTier above: these model
+    // opportunities/ratings/emotions, not a submission's recruitment-process
+    // facts, so null is the only honest value.
+    outreachQuality: null,
+    sensitiveInfoRequested: null,
+    sensitiveInfoStage: null,
+    sensitiveInfoPurposeExplained: null,
+    sensitiveInfoNecessaryPerceived: null,
   };
 }

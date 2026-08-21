@@ -20,6 +20,9 @@ import type {
   WouldRecommend,
   TenureBucket,
   ConductEnvironment,
+  OutreachQuality,
+  SensitiveInfoRequested,
+  SensitiveInfoStage,
 } from "@/types/index";
 import type { PerceivedSeriousness, IntentReason } from "@/lib/hiring-intent/events";
 import { INTENT_REASON_VALUES } from "@/lib/hiring-intent/events";
@@ -106,6 +109,13 @@ interface FormState {
   salary_proof_type: SalaryProofType | "";
   salary_proof_stage: SalaryProofStage | "";
   salary_range_disclosed: SalaryRangeDisclosed | "";
+  /** Recruitment Process Intelligence (migration 0033, D-031). All optional;
+   *  "" means unanswered → null. */
+  outreach_quality: OutreachQuality | "";
+  sensitive_info_requested: SensitiveInfoRequested | "";
+  sensitive_info_stage: SensitiveInfoStage | "";
+  sensitive_info_purpose_explained: "" | "yes" | "no";
+  sensitive_info_necessary_perceived: "" | "yes" | "no";
   /** Hiring-intent perception (migration 0023). Candidate-only, optional, and
    *  explicitly a PERCEPTION — never rendered as objective fact. "" → no event. */
   perceived_seriousness: PerceivedSeriousness | "";
@@ -225,6 +235,8 @@ const EMPTY: FormState = {
   call_duration: "", first_interaction_outcome: "",
   reason: "", payment_flag: "",
   salary_history_stage: "", salary_proof_type: "", salary_proof_stage: "", salary_range_disclosed: "",
+  outreach_quality: "", sensitive_info_requested: "", sensitive_info_stage: "",
+  sensitive_info_purpose_explained: "", sensitive_info_necessary_perceived: "",
   perceived_seriousness: "", intent_reasons: [],
   exit_experience_letter: "", exit_settlement: "", exit_documentation: "",
   would_recommend: "", tenure_bucket: "", conduct_environment: "",
@@ -575,6 +587,19 @@ export default function SubmitPage() {
       salary_proof_type: isCandidate ? form.salary_proof_type || null : null,
       salary_proof_stage: isCandidate ? form.salary_proof_stage || null : null,
       salary_range_disclosed: isCandidate ? form.salary_range_disclosed || null : null,
+      // Recruitment Process Intelligence (0033, D-031) — candidate-knowable
+      // only, same "" → null rule as salary above.
+      outreach_quality: isCandidate ? form.outreach_quality || null : null,
+      sensitive_info_requested: isCandidate ? form.sensitive_info_requested || null : null,
+      sensitive_info_stage: isCandidate ? form.sensitive_info_stage || null : null,
+      sensitive_info_purpose_explained:
+        isCandidate && form.sensitive_info_purpose_explained !== ""
+          ? form.sensitive_info_purpose_explained === "yes"
+          : null,
+      sensitive_info_necessary_perceived:
+        isCandidate && form.sensitive_info_necessary_perceived !== ""
+          ? form.sensitive_info_necessary_perceived === "yes"
+          : null,
       // Tenure-stage practices (0020) — collectable from whichever relationship
       // actually answered; "" (unanswered) stays null either way.
       exit_experience_letter: form.exit_experience_letter || null,
@@ -1000,6 +1025,75 @@ export default function SubmitPage() {
                     <option value="never">Never shared</option>
                   </select>
                 </div>
+              </div>
+
+              {/* Recruitment Process Intelligence (migration 0033, D-031). All
+                  optional. Records what happened and when — never a legal
+                  verdict about it; see the CompensationPanel precedent this
+                  copy deliberately follows. */}
+              <div className="border-t border-rule pt-5 space-y-5">
+                <p className="text-xs text-ink-muted">
+                  Recruitment process <span className="text-ink-faint">— optional, helps show whether outreach was researched and what was asked of you.</span>
+                </p>
+                <div>
+                  <label htmlFor="outreach-quality" className={LABEL_CLS}>
+                    If a recruiter contacted you first, did it seem like they&apos;d reviewed your profile?
+                  </label>
+                  <select id="outreach-quality" value={form.outreach_quality} onChange={(e) => set("outreach_quality", e.target.value as FormState["outreach_quality"])} className={SELECT_CLS}>
+                    <option value="">Prefer not to say / I applied first</option>
+                    <option value="profile_reviewed_relevant">Yes — the role matched my background</option>
+                    <option value="generic_outreach">Generic outreach, hard to tell</option>
+                    <option value="obvious_mismatch">No — the role was an obvious mismatch</option>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="sensitive-info-requested" className={LABEL_CLS}>Were you asked for any of these during the process?</label>
+                  <select id="sensitive-info-requested" value={form.sensitive_info_requested} onChange={(e) => set("sensitive_info_requested", e.target.value as FormState["sensitive_info_requested"])} className={SELECT_CLS}>
+                    <option value="">Prefer not to say</option>
+                    <option value="none">Nothing sensitive was asked for</option>
+                    <option value="aadhaar">Aadhaar</option>
+                    <option value="pan">PAN card</option>
+                    <option value="bank_details">Bank account details</option>
+                    <option value="salary_slips">Salary slips</option>
+                    <option value="other">Something else sensitive</option>
+                  </select>
+                </div>
+                {form.sensitive_info_requested !== "" && form.sensitive_info_requested !== "none" && (
+                  <>
+                    <div>
+                      <label htmlFor="sensitive-info-stage" className={LABEL_CLS}>At what stage was it requested?</label>
+                      <select id="sensitive-info-stage" value={form.sensitive_info_stage} onChange={(e) => set("sensitive_info_stage", e.target.value as FormState["sensitive_info_stage"])} className={SELECT_CLS}>
+                        <option value="">Prefer not to say</option>
+                        <option value="screening">At screening</option>
+                        <option value="interview">During interviews</option>
+                        <option value="before_offer">Before a written offer</option>
+                        <option value="after_offer">After a written offer</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label htmlFor="sensitive-info-purpose" className={LABEL_CLS}>Was the reason for asking explained to you?</label>
+                      <select id="sensitive-info-purpose" value={form.sensitive_info_purpose_explained} onChange={(e) => set("sensitive_info_purpose_explained", e.target.value as FormState["sensitive_info_purpose_explained"])} className={SELECT_CLS}>
+                        <option value="">Prefer not to say</option>
+                        <option value="yes">Yes, it was explained</option>
+                        <option value="no">No, it wasn&apos;t explained</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label htmlFor="sensitive-info-necessary" className={LABEL_CLS}>
+                        Did it feel necessary or reasonable to you? <span className="text-ink-faint font-normal">(your impression)</span>
+                      </label>
+                      <select id="sensitive-info-necessary" value={form.sensitive_info_necessary_perceived} onChange={(e) => set("sensitive_info_necessary_perceived", e.target.value as FormState["sensitive_info_necessary_perceived"])} className={SELECT_CLS}>
+                        <option value="">Prefer not to say</option>
+                        <option value="yes">Yes, it felt reasonable</option>
+                        <option value="no">No, it didn&apos;t feel reasonable</option>
+                      </select>
+                      <p className="text-xs text-ink-faint mt-1.5">
+                        This is your own impression, recorded alongside other candidates&apos; — CandidateVoice does not
+                        judge whether a request was lawful, only what candidates reported happened.
+                      </p>
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Hiring-intent perception (migration 0023). Explicitly YOUR

@@ -25,6 +25,9 @@ import type {
   TenureBucket,
   ConductEnvironment,
   VerificationTier,
+  OutreachQuality,
+  SensitiveInfoRequested,
+  SensitiveInfoStage,
 } from "@/types/index";
 import type { EvidenceItem } from "./types";
 import type { RawFirstPartyRow, RawExternalRow } from "./load";
@@ -58,6 +61,12 @@ const CONDUCT_ENVIRONMENTS: readonly string[] = ["respectful", "mostly_ok", "som
 // (D-022). An unrecognized or null value falls back to 'unverified' below —
 // the safe default, matching how the column defaults at the DB.
 const VERIFICATION_TIERS: readonly string[] = ["unverified", "inbox_verified", "contact_domain", "attested"];
+// Recruitment Process Intelligence (migration 0033). 'none' is a real answer
+// ("nothing sensitive was ever asked for"), not absence — same rule as every
+// enum column above.
+const OUTREACH_QUALITIES: readonly string[] = ["profile_reviewed_relevant", "generic_outreach", "obvious_mismatch"];
+const SENSITIVE_INFO_REQUESTED_VALUES: readonly string[] = ["none", "aadhaar", "pan", "bank_details", "salary_slips", "other"];
+const SENSITIVE_INFO_STAGES: readonly string[] = ["none", "screening", "interview", "before_offer", "after_offer"];
 
 /**
  * Narrow a raw string to its enum type, or null. The DB's own CHECK
@@ -120,6 +129,11 @@ export function normalizeFirstParty(rows: RawFirstPartyRow[]): EvidenceItem[] {
       // Coarse provenance metadata, not a weight (D-022). `weight` above was
       // computed with no reference to this field and never will be.
       verificationTier: asEnum<VerificationTier>(r.verification_tier, VERIFICATION_TIERS) ?? "unverified",
+      outreachQuality: asEnum<OutreachQuality>(r.outreach_quality, OUTREACH_QUALITIES),
+      sensitiveInfoRequested: asEnum<SensitiveInfoRequested>(r.sensitive_info_requested, SENSITIVE_INFO_REQUESTED_VALUES),
+      sensitiveInfoStage: asEnum<SensitiveInfoStage>(r.sensitive_info_stage, SENSITIVE_INFO_STAGES),
+      sensitiveInfoPurposeExplained: r.sensitive_info_purpose_explained,
+      sensitiveInfoNecessaryPerceived: r.sensitive_info_necessary_perceived,
     }));
 }
 
@@ -180,6 +194,14 @@ export function normalizeExternal(rows: RawExternalRow[], globalMultiplier: numb
         // A third-party forum post carries no verification grant — external
         // evidence is always 'unverified' (W1 asymmetry, same as the fields above).
         verificationTier: "unverified" as VerificationTier,
+        // Field asymmetry, not a mapping bug (migration 0033 columns are
+        // first-party only): a third-party forum post cannot structurally
+        // know what stage a poster was asked for a PAN card.
+        outreachQuality: null,
+        sensitiveInfoRequested: null,
+        sensitiveInfoStage: null,
+        sensitiveInfoPurposeExplained: null,
+        sensitiveInfoNecessaryPerceived: null,
       };
     });
 }

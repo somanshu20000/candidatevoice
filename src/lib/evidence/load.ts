@@ -52,6 +52,14 @@ export interface RawFirstPartyRow {
   /** Verification provenance (migrations 0027/0028). Coarse enum; defaults to
    *  'unverified' at the DB. Never a weight input (D-022). */
   verification_tier: string | null;
+  /** Recruitment Process Intelligence, first-party only (migration 0033).
+   *  null = unanswered (excluded from metrics), NOT "no"/"none" — those are
+   *  answers. See DECISIONS.md D-031. */
+  outreach_quality: string | null;
+  sensitive_info_requested: string | null;
+  sensitive_info_stage: string | null;
+  sensitive_info_purpose_explained: boolean | null;
+  sensitive_info_necessary_perceived: boolean | null;
 }
 
 export interface RawExternalRow {
@@ -75,7 +83,8 @@ const FIRST_PARTY_SELECT =
   "last_interaction_gap, call_duration, first_interaction_outcome, reason, payment_flag, reported_month, " +
   "application_channel, salary_history_stage, salary_proof_type, salary_proof_stage, salary_range_disclosed, " +
   "exit_experience_letter, exit_settlement, exit_documentation, would_recommend, tenure_bucket, conduct_environment, " +
-  "verification_tier";
+  "verification_tier, " +
+  "outreach_quality, sensitive_info_requested, sensitive_info_stage, sensitive_info_purpose_explained, sensitive_info_necessary_perceived";
 
 const EXTERNAL_SELECT =
   "id, organization_id, source_key, trust_weight, experience_bucket, stage, outcome, " +

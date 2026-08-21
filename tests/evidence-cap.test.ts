@@ -40,6 +40,11 @@ function item(fields: Partial<EvidenceItem> & Pick<EvidenceItem, "id" | "family"
     conductEnvironment: null,
     verificationTier: "unverified",
     extractionConfidence: null,
+    outreachQuality: null,
+    sensitiveInfoRequested: null,
+    sensitiveInfoStage: null,
+    sensitiveInfoPurposeExplained: null,
+    sensitiveInfoNecessaryPerceived: null,
     ...fields,
   };
 }

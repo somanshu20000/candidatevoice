@@ -35,6 +35,10 @@ const VERIFICATION = readFileSync(
   join(process.cwd(), "supabase/migrations/0027_submission_verification.sql"),
   "utf8"
 );
+const RECRUITMENT_INTEL = readFileSync(
+  join(process.cwd(), "supabase/migrations/0033_recruitment_process_intel.sql"),
+  "utf8"
+);
 
 // Every real column on hiring_submissions (0000_baseline_hiring_submissions.sql
 // + 0002/0014/0018/0019/0020's additions), EXCLUDING the three the guard must
@@ -65,6 +69,17 @@ const IMMUTABLE_COLUMNS = [
   "would_recommend",
   "tenure_bucket",
   "conduct_environment",
+];
+// verification_tier (0027) plus the five Recruitment Process Intelligence
+// columns (0033, D-031) — everything the 0033-redefined guard must lock.
+const IMMUTABLE_COLUMNS_0033 = [
+  ...IMMUTABLE_COLUMNS,
+  "verification_tier",
+  "outreach_quality",
+  "sensitive_info_requested",
+  "sensitive_info_stage",
+  "sensitive_info_purpose_explained",
+  "sensitive_info_necessary_perceived",
 ];
 
 describe("0025 — hiring_submissions_guard_immutable column coverage", () => {
@@ -164,6 +179,55 @@ describe("0027 — verification_tier is locked by the redefined guard function",
 
   it("raises the same exception message as the original 0025 guard", () => {
     expect(VERIFICATION).toMatch(/raise exception 'hiring_submissions rows are immutable except is_approved, rejected_at and organization_id'/);
+  });
+});
+
+describe("0033 — Recruitment Process Intelligence columns are locked by the redefined guard function", () => {
+  function guardBody(sql: string): string {
+    const start = sql.indexOf("function hiring_submissions_guard_immutable()");
+    expect(start, "0033 must redefine hiring_submissions_guard_immutable()").toBeGreaterThan(-1);
+    const bodyStart = sql.indexOf("as $$", start);
+    const bodyEnd = sql.indexOf("$$;", bodyStart);
+    return sql.slice(bodyStart, bodyEnd);
+  }
+
+  it("0033 redefines the guard via CREATE OR REPLACE, not a new function/trigger", () => {
+    expect(RECRUITMENT_INTEL).toMatch(/create or replace function hiring_submissions_guard_immutable\(\)/);
+    expect(RECRUITMENT_INTEL).not.toMatch(/create trigger hiring_submissions_immutable/);
+  });
+
+  it("the redefined guard locks every column through 0033, including the five new ones (no rewrite regression)", () => {
+    const body = guardBody(RECRUITMENT_INTEL);
+    for (const col of IMMUTABLE_COLUMNS_0033) {
+      expect(
+        body.includes(`new.${col}`) && body.includes(`old.${col}`),
+        `0033's redefined guard is missing a check for column "${col}" — it would be silently mutable`
+      ).toBe(true);
+    }
+  });
+
+  it("the redefined guard still leaves the three legitimate mutation columns mutable", () => {
+    const body = guardBody(RECRUITMENT_INTEL);
+    for (const col of MUTABLE_COLUMNS) {
+      expect(
+        new RegExp(`new\\.${col}\\b`).test(body),
+        `0033's redefined guard unexpectedly checks column "${col}" — this must stay mutable`
+      ).toBe(false);
+    }
+  });
+
+  it("adds a NOT VALID CHECK for each new enum column, matching the additive-CHECK convention", () => {
+    expect(RECRUITMENT_INTEL).toMatch(/hiring_submissions_outreach_quality_check/);
+    expect(RECRUITMENT_INTEL).toMatch(/hiring_submissions_sensitive_info_requested_check/);
+    expect(RECRUITMENT_INTEL).toMatch(/hiring_submissions_sensitive_info_stage_check/);
+  });
+
+  it("submit_hiring_report and public_submissions both carry the five new columns", () => {
+    expect(RECRUITMENT_INTEL).toMatch(/create or replace function submit_hiring_report/);
+    expect(RECRUITMENT_INTEL).toMatch(/create or replace view public_submissions/);
+    for (const col of ["outreach_quality", "sensitive_info_requested", "sensitive_info_stage", "sensitive_info_purpose_explained", "sensitive_info_necessary_perceived"]) {
+      expect(RECRUITMENT_INTEL.includes(`s.${col}`), `public_submissions is missing s.${col}`).toBe(true);
+    }
   });
 });
 

@@ -45,6 +45,11 @@ function firstPartyRow(overrides: Partial<RawFirstPartyRow> = {}): RawFirstParty
     tenure_bucket: null,
     conduct_environment: null,
     verification_tier: "unverified",
+    outreach_quality: null,
+    sensitive_info_requested: null,
+    sensitive_info_stage: null,
+    sensitive_info_purpose_explained: null,
+    sensitive_info_necessary_perceived: null,
     ...overrides,
   };
 }

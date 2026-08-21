@@ -55,6 +55,11 @@ function evidenceItem(fields: Partial<EvidenceItem> & Pick<EvidenceItem, "id" | 
     conductEnvironment: null,
     verificationTier: "unverified",
     extractionConfidence: null,
+    outreachQuality: null,
+    sensitiveInfoRequested: null,
+    sensitiveInfoStage: null,
+    sensitiveInfoPurposeExplained: null,
+    sensitiveInfoNecessaryPerceived: null,
     ...fields,
   };
 }
@@ -85,6 +90,11 @@ function rawFirstPartyRow(fields: Partial<RawFirstPartyRow> & Pick<RawFirstParty
     tenure_bucket: null,
     conduct_environment: null,
     verification_tier: null,
+    outreach_quality: null,
+    sensitive_info_requested: null,
+    sensitive_info_stage: null,
+    sensitive_info_purpose_explained: null,
+    sensitive_info_necessary_perceived: null,
     ...fields,
   };
 }

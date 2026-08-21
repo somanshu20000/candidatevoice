@@ -38,6 +38,9 @@ import type {
   TenureBucket,
   ConductEnvironment,
   VerificationTier,
+  OutreachQuality,
+  SensitiveInfoRequested,
+  SensitiveInfoStage,
 } from "@/types/index";
 
 export type EvidenceFamily = "first_party" | "external";
@@ -124,6 +127,19 @@ export interface EvidenceItem {
    * the pipeline; it renders nothing).
    */
   verificationTier: VerificationTier;
+
+  /**
+   * Recruitment Process Intelligence (migration 0033). FIRST-PARTY ONLY, same
+   * asymmetry as every field above: external_reports has no equivalent
+   * columns. null = candidate did not answer (excluded), never "no"/"none" —
+   * those are real, counted answers. See DECISIONS.md D-031: these fields
+   * carry only what the candidate observed, never a legal interpretation of it.
+   */
+  outreachQuality: OutreachQuality | null;
+  sensitiveInfoRequested: SensitiveInfoRequested | null;
+  sensitiveInfoStage: SensitiveInfoStage | null;
+  sensitiveInfoPurposeExplained: boolean | null;
+  sensitiveInfoNecessaryPerceived: boolean | null;
 }
 
 /**

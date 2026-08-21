@@ -219,3 +219,64 @@ describe("interview-optional-field enum sync (call_duration / first_interaction_
     expect(ROUTE.first_interaction_outcome.includes("bogus")).toBe(false);
   });
 });
+
+describe("Recruitment Process Intelligence enum sync (migration 0033, D-031)", () => {
+  // Same three-independently-maintained-copies risk as compensation privacy
+  // above: DB CHECK constraint, the route's VALID_* arrays, the TS union in
+  // types/index.ts.
+  const ROUTE = {
+    outreach_quality: ["profile_reviewed_relevant", "generic_outreach", "obvious_mismatch"],
+    sensitive_info_requested: ["none", "aadhaar", "pan", "bank_details", "salary_slips", "other"],
+    sensitive_info_stage: ["none", "screening", "interview", "before_offer", "after_offer"],
+  };
+
+  // Must match 0033's CHECK constraints exactly (order irrelevant).
+  const MIGRATION_0033 = {
+    outreach_quality: ["profile_reviewed_relevant", "generic_outreach", "obvious_mismatch"],
+    sensitive_info_requested: ["none", "aadhaar", "pan", "bank_details", "salary_slips", "other"],
+    sensitive_info_stage: ["none", "screening", "interview", "before_offer", "after_offer"],
+  };
+
+  // types/index.ts's OutreachQuality / SensitiveInfoRequested / SensitiveInfoStage unions.
+  const TYPES_INDEX = {
+    outreach_quality: ["profile_reviewed_relevant", "generic_outreach", "obvious_mismatch"],
+    sensitive_info_requested: ["none", "aadhaar", "pan", "bank_details", "salary_slips", "other"],
+    sensitive_info_stage: ["none", "screening", "interview", "before_offer", "after_offer"],
+  };
+
+  it.each(Object.keys(ROUTE))("%s matches the migration's CHECK constraint", (field) => {
+    const k = field as keyof typeof ROUTE;
+    expect([...ROUTE[k]].sort()).toEqual([...MIGRATION_0033[k]].sort());
+  });
+
+  it.each(Object.keys(ROUTE))("%s matches the TS union in types/index.ts", (field) => {
+    const k = field as keyof typeof ROUTE;
+    expect([...ROUTE[k]].sort()).toEqual([...TYPES_INDEX[k]].sort());
+  });
+
+  it("'none' is a real ANSWER in the sensitive-info allowlists, not an absence marker", () => {
+    // Same load-bearing distinction as 'never'/'none' in compensation privacy:
+    // null (unanswered, excluded) vs 'none' (answered: nothing was asked for,
+    // counted as a real report). Dropping 'none' from the allowlist would 400
+    // an honest "nothing sensitive was ever asked for" report.
+    expect(ROUTE.sensitive_info_requested).toContain("none");
+    expect(ROUTE.sensitive_info_stage).toContain("none");
+  });
+
+  it("every field is optional — absence is valid, only a present-unknown value errors", () => {
+    for (const raw of [undefined, null, ""]) {
+      expect(raw === undefined || raw === null || raw === "").toBe(true);
+    }
+  });
+
+  it("does not encode a legal verdict as an enum value — the allowlist has no 'illegal'/'lawful'/'violation' member", () => {
+    // Direct, mechanical enforcement of the product rule stated in the
+    // migration and DECISIONS.md D-031: this schema records what was
+    // requested and when, never whether it was permitted.
+    const forbidden = ["illegal", "unlawful", "lawful", "violation", "compliant", "noncompliant"];
+    const allValues = [...ROUTE.outreach_quality, ...ROUTE.sensitive_info_requested, ...ROUTE.sensitive_info_stage];
+    for (const term of forbidden) {
+      expect(allValues.includes(term)).toBe(false);
+    }
+  });
+});
