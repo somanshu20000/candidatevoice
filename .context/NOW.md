@@ -1,6 +1,6 @@
 # NOW — CandidateVoice project state
 
-**Last updated:** 2026-08-21, 8th pass (Recruitment Process Intelligence, D-031 — read this section first, in full, before touching code).
+**Last updated:** 2026-08-21, 8th pass (Recruitment Process Intelligence, D-031, pushed + migration 0033 applied + live QA-verified — read this section first, in full, before touching code).
 
 ## This pass: Recruitment Process Intelligence — outreach quality & information-request behaviour (D-031)
 
@@ -13,7 +13,7 @@ reasoning (two of the four categories were already covered by existing
 Likert facets/behavioural dimensions; "candidate time waste" is deliberately
 deferred as its own future migration).
 
-**Shipped, migration `0033` (NOT YET APPLIED TO PRODUCTION — see below):**
+**Shipped, migration `0033` (APPLIED to production — see the live-verification block below):**
 - 5 new first-party-only, nullable columns on `hiring_submissions`:
   `outreach_quality` (one enum collapsing "reviewed my profile"/"role
   matched"/"obvious mismatch" into one ladder), `sensitive_info_requested`
@@ -62,11 +62,34 @@ kind of acceptance test earlier milestones like D-028/D-029 ran) was **not**
 performed — recommend running it once real reports start carrying these
 fields.
 
-**NOT applied to production**: migration `0033` is written and structurally
-tested but not run against the live Supabase project — applying migrations
-has been a human/explicit-instruction step throughout this project's history
-(see M5.4's precedent). Apply it before this feature can collect anything
-live.
+**Pushed, applied, and live-verified (this pass, on explicit instruction):**
+commit `966594b` pushed to `origin/main`; Vercel deployment
+`dpl_695DjACHdZqd9swC3u617ECDCRwp` confirmed READY. Migration `0033` applied
+to production via Supabase MCP `apply_migration` (`list_migrations`
+confirms it's the newest, after `demo_external_source`). Live QA cycle
+against the dedicated `m54-qa-verification-test` org
+(`b77ee3bd-f7f7-4e59-b67d-3eacf08c1597`), same pattern as M5.4/D-028/D-029:
+1. `submit_hiring_report` RPC inserted a real row (`d45778ff-e98a-49e3-9657-a754aa77180c`)
+   with all 5 new fields populated — `organization_id` correctly resolved
+   (no orphan bug), landed `is_approved=false` (correctly pending).
+2. Attempted `UPDATE ... SET outreach_quality = ...` on the row — genuinely
+   blocked: `P0001: hiring_submissions rows are immutable except
+   is_approved, rejected_at and organization_id`. The 0033-extended guard
+   works against live production, not just the structural-parity tests.
+3. Approved the row → `public_submissions` correctly exposed all 5 new
+   columns with the right values.
+4. Rejected the row → `public_submissions` count for it went to 0 (removed
+   from every downstream read path; the row itself persists per the
+   no-hard-delete design, same as every other QA row this project has run).
+5. `moderation_audit_log` correctly recorded both the approve and reject
+   transitions — the 0026 ledger trigger is unaffected by the new columns.
+6. `get_advisors(security)` — no new finding mentions `0033`, the five new
+   columns, or `hiring_submissions_guard_immutable`; every listed advisory
+   is pre-existing and unrelated (RLS-enabled-no-policy on other tables,
+   already documented as intentional service-role-only surfaces).
+
+No real evidence was touched — the only row this pass wrote is the rejected
+QA row above.
 
 **Explicitly deferred, not built this pass** (see D-031 for full reasoning):
 candidate time-waste fields (rounds/travel/rescheduling/virtual-interview
