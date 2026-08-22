@@ -38,6 +38,8 @@ function item(fields: Partial<EvidenceItem> & Pick<EvidenceItem, "id">): Evidenc
     sensitiveInfoStage: null,
     sensitiveInfoPurposeExplained: null,
     sensitiveInfoNecessaryPerceived: null,
+    hiringChannel: null,
+    paymentRequestedBy: null,
     ...fields,
   };
 }

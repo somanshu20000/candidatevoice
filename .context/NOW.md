@@ -1,8 +1,108 @@
 # NOW — CandidateVoice project state
 
-**Last updated:** 2026-08-22, 13th pass (live presence counters, D-036 — read this section first, in full, before touching code).
+**Last updated:** 2026-08-22, 14th pass (hiring channel + payment attribution, D-037, plus a UX/analytics/Mautic audit — read this section first, in full, before touching code).
 
-## This pass: live presence counters — site-wide + per-company active-viewer counts (D-036)
+## This pass: hiring channel + payment attribution + UX/analytics/Mautic audit (D-037)
+
+Two requests done together: (1) add `hiring_channel`/`payment_requested_by`
+stratifiers + company-page cohort filters that genuinely recompute every
+statistic; (2) a UX/accessibility/analytics audit and a Mautic architecture
+decision. Full reasoning in D-037; operational summary here.
+
+**Most of (1) already existed** before this pass: `experience_bucket`
+(required, 5 bands), `payment_flag` (required boolean, already
+corroboration-gated), and a URL-driven `CohortFilter`/`CohortSelector` with
+denominator-recomputing `scopeToCohort`. Decisions made before coding: keep
+`8+` (no schema change for experience), `hiring_channel` is additive to
+`application_channel` (different questions), no Mautic near this product's
+core surfaces, pure-logic tests only this pass (no jsdom/Testing
+Library/Playwright-UI).
+
+**New:** migration `0037_hiring_channel.sql` (two nullable text columns,
+`not valid` CHECK, immutability-guard extension, `public_submissions`/
+`submit_hiring_report` updates — 0033's exact pattern). Two new cohort axes
+(`hiringChannel`, `paymentRequested`) in `src/lib/evidence/cohort.ts`. A new
+privacy floor, `COHORT_MIN_EFFECTIVE_N=3` — protects the cohort's
+*existence and count* as a disclosure, not just its metrics.
+
+**The real work:** `CompensationPanel`, `RecruitmentIntelPanel`,
+`EvidenceMix`, the behavioural-fingerprint list, and stage distribution
+previously ignored the cohort filter entirely (only the small forecast panel
+was ever filtered) — exactly the "hide rows, leave the aggregate unchanged"
+failure the task named. Fixed by computing cohort-scoped equivalents with
+the same pure functions already used company-wide, swapped in with a "Based
+on N reports" caption above the floor. Culture/conduct/offboarding/Likert
+panels stay deliberately company-wide (candidate-process facts don't apply
+to employee reports) and are explicitly labelled as such.
+
+**A real bug, caught by live curl verification, not a test** (pure-logic
+testing scope has no coverage of page.tsx's rendering logic): the first
+implementation fell back to **unfiltered company-wide numbers**, unlabeled,
+whenever a filter was active but too thin to disclose — including zero
+matches. Fixed: these panels now suppress entirely below the floor, never
+silently revert to unfiltered data. This is the argument for treating the
+live-verification step as load-bearing, not a formality — see D-037's own
+account of exactly how this was found.
+
+**Deployment-ordering finding:** the evidence loader selects the two new
+columns on every company-page load (an always-hit path, unlike the
+additive/fail-open presence feature) — pushing before migration `0037` was
+live would have 500'd every company page. Both `0037` **and** the
+previously-blocked `0036` (live presence) were applied to production this
+pass — the Supabase MCP `apply_migration` call that failed last pass
+succeeded on retry. `/api/presence/heartbeat` now returns real counts from
+production for the first time.
+
+**Analytics events proposed (`report_filter_opened/_changed/_cleared`):
+all three killed.** The cohort filter is a plain GET form with zero client
+JS — the selection is already in the next page's URL. No new statistics
+either (no significance testing/channel rankings) — "zero new formulas" is
+this engine's stated discipline.
+
+**Part 2 — UX/analytics/Mautic audit (no code changes from this half):**
+- **UX audit, ranked:** no `<Suspense>` anywhere (biggest perceived-perf
+  win available); HQS headline below the fold at position ~11; `loading.tsx`
+  missing on 5 of 11 routes including `/submit`/`/admin`; only a root
+  `error.tsx`; `SELECT_CLS` triplicated across 3 files.
+- **Accessibility audit:** thin coverage (28 aria/role occurrences across
+  ~30 components/pages). `CultureThemePanel` is the worst offender —
+  magnitude encoded by font size alone, count hidden in a `title` attribute
+  (invisible on mobile/keyboard). `Bar`/`PageLoading` are the models to
+  propagate.
+- **Analytics audit:** there is **no product analytics at all** today — no
+  package, no consent banner, no UTM capture. The CSP (`script-src 'self'`,
+  `connect-src 'self' https://*.supabase.co`) blocks any third-party
+  tracker from loading as-is.
+- **Mautic decision: marketing surfaces only, never product.** Mautic's
+  `mtc.js` creates a persistent Contact record per anonymous visitor and
+  merges browsing history into it on identification — exactly the
+  correlation ADR-0001 §4.3/D-007 forbid on this product. Self-host Mautic
+  only if/when a separate marketing domain exists; never load it on any
+  product route.
+- **Event taxonomy:** killed nearly everything proposed (already in the
+  URL, already a DB row, or already covered by presence). The one surviving
+  event: a server-side `company_search_no_result` counter (Postgres, no
+  client JS), not yet built.
+- **Test architecture:** documented a deferred browser-testing milestone
+  (Playwright E2E, already a devDependency; ~8-12 acceptance journeys, never
+  screenshot diffs) — explicitly a separate future milestone, not this pass.
+
+**Verified:** full suite 963/963 green (was 925). `tsc --noEmit` clean.
+`npm run build` clean, 39/39 pages. Live-verified against a local `npm
+start` production build with both migrations live: unfiltered + filtered
+company pages 200, new filter dropdowns render, submit wizard's "Who hired
+you?" renders, narrow-filter suppression confirmed correct, presence
+heartbeat returns real counts.
+
+**Not yet done:** git commit/push of this pass, Vercel deployment
+verification, and the UX/accessibility/analytics fixes named in the audit
+(explicitly out of scope for this pass — audit + Part-1 code only).
+
+---
+
+**Previous pass — 2026-08-22, 13th pass** (live presence counters, D-036).
+
+## Prior pass: live presence counters — site-wide + per-company active-viewer counts (D-036)
 
 Full spec: global "127 people are exploring CandidateVoice" + per-company
 "143 people are viewing this company", >100 threshold (strict `>`, never

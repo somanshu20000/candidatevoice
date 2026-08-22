@@ -60,6 +60,12 @@ export interface RawFirstPartyRow {
   sensitive_info_stage: string | null;
   sensitive_info_purpose_explained: boolean | null;
   sensitive_info_necessary_perceived: boolean | null;
+  /** Hiring channel + payment attribution, first-party only (migration 0037).
+   *  null = unanswered (excluded from metrics). payment_requested_by is
+   *  attribution only — payment_flag above remains the sole "did it happen"
+   *  signal. */
+  hiring_channel: string | null;
+  payment_requested_by: string | null;
 }
 
 export interface RawExternalRow {
@@ -84,7 +90,8 @@ const FIRST_PARTY_SELECT =
   "application_channel, salary_history_stage, salary_proof_type, salary_proof_stage, salary_range_disclosed, " +
   "exit_experience_letter, exit_settlement, exit_documentation, would_recommend, tenure_bucket, conduct_environment, " +
   "verification_tier, " +
-  "outreach_quality, sensitive_info_requested, sensitive_info_stage, sensitive_info_purpose_explained, sensitive_info_necessary_perceived";
+  "outreach_quality, sensitive_info_requested, sensitive_info_stage, sensitive_info_purpose_explained, sensitive_info_necessary_perceived, " +
+  "hiring_channel, payment_requested_by";
 
 const EXTERNAL_SELECT =
   "id, organization_id, source_key, trust_weight, experience_bucket, stage, outcome, " +

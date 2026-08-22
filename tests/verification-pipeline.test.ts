@@ -50,6 +50,8 @@ function firstPartyRow(overrides: Partial<RawFirstPartyRow> = {}): RawFirstParty
     sensitive_info_stage: null,
     sensitive_info_purpose_explained: null,
     sensitive_info_necessary_perceived: null,
+    hiring_channel: null,
+    payment_requested_by: null,
     ...overrides,
   };
 }

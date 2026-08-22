@@ -60,6 +60,8 @@ function evidenceItem(fields: Partial<EvidenceItem> & Pick<EvidenceItem, "id" | 
     sensitiveInfoStage: null,
     sensitiveInfoPurposeExplained: null,
     sensitiveInfoNecessaryPerceived: null,
+    hiringChannel: null,
+    paymentRequestedBy: null,
     ...fields,
   };
 }
@@ -95,6 +97,8 @@ function rawFirstPartyRow(fields: Partial<RawFirstPartyRow> & Pick<RawFirstParty
     sensitive_info_stage: null,
     sensitive_info_purpose_explained: null,
     sensitive_info_necessary_perceived: null,
+    hiring_channel: null,
+    payment_requested_by: null,
     ...fields,
   };
 }

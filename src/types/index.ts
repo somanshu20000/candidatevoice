@@ -95,6 +95,25 @@ export type SensitiveInfoRequested = "none" | "aadhaar" | "pan" | "bank_details"
 export type SensitiveInfoStage = "none" | "screening" | "interview" | "before_offer" | "after_offer";
 
 /**
+ * Hiring channel + payment attribution (migration 0037). First-party only,
+ * optional, "NULL is not an answer" like every field above. NOT the same axis
+ * as ApplicationChannel: that answers how the candidate applied/found the
+ * role; this answers who the employing intermediary was. consultancy_agency
+ * collapses what the source brief listed as two values (consultancy vs
+ * recruitment agency) because the specified UI wording never lets a
+ * respondent distinguish them — an uncollectable distinction is unmeasurable.
+ */
+export type HiringChannel = "company_direct" | "consultancy_agency" | "referral" | "other";
+/**
+ * Attribution only — answers WHO requested payment, not WHETHER (that is the
+ * existing required `payment_flag` boolean, unchanged and untouched by this
+ * type). Meaningful only when payment_flag is true. `not_sure` lives here,
+ * not on payment_flag, because "payment was requested, unsure by whom" does
+ * not change the answer to whether it happened.
+ */
+export type PaymentRequestedBy = "company" | "consultancy_agency" | "other" | "not_sure";
+
+/**
  * The furthest stage a submission reached, as shown on a card.
  *
  * These describe a STAGE, never an outcome. `final` means "reached the final
@@ -180,6 +199,10 @@ export interface HiringSubmission {
   sensitive_info_stage?: SensitiveInfoStage | null;
   sensitive_info_purpose_explained?: boolean | null;
   sensitive_info_necessary_perceived?: boolean | null;
+  /** Hiring channel + payment attribution (migration 0037). Both optional;
+   *  null means unanswered, never a default of "company_direct"/"not_sure". */
+  hiring_channel?: HiringChannel | null;
+  payment_requested_by?: PaymentRequestedBy | null;
 }
 
 export type Database = {

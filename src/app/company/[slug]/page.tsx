@@ -14,9 +14,14 @@ import {
   parseExperienceBucket,
   parseApplicationChannel,
   parseReporterType,
+  parseHiringChannel,
+  parsePaymentRequested,
   REPORTER_TYPE_LABELS,
   EXPERIENCE_BUCKET_LABELS,
   APPLICATION_CHANNEL_LABELS,
+  HIRING_CHANNEL_LABELS,
+  PAYMENT_REQUESTED_LABELS,
+  COHORT_MIN_EFFECTIVE_N,
   inspectEvidence,
 } from "@/lib/evidence";
 import { DIMENSION_MIN_EFFECTIVE_N } from "@/lib/fingerprint/behavioural";
@@ -67,8 +72,15 @@ import {
 
 interface Props {
   params: { slug: string };
-  /** Cohort filter, read from ?experience=&channel= — see CohortSelector below. */
-  searchParams?: { experience?: string; channel?: string; relationship?: string };
+  /** Cohort filter, read from ?experience=&channel=&relationship=&hiring_channel=&payment= —
+   *  see CohortSelector below. */
+  searchParams?: {
+    experience?: string;
+    channel?: string;
+    relationship?: string;
+    hiring_channel?: string;
+    payment?: string;
+  };
 }
 
 /**
@@ -226,7 +238,19 @@ const OUTCOME_LABELS: Record<string, string> = {
   rejected: "Rejected", no_response: "No response", offer: "Offer", ongoing: "Ongoing",
 };
 
-function EvidenceMix({ firstPartyProportion, firstPartyRaw, externalRaw }: { firstPartyProportion: number; firstPartyRaw: number; externalRaw: number }) {
+function EvidenceMix({
+  firstPartyProportion,
+  firstPartyRaw,
+  externalRaw,
+  caption,
+}: {
+  firstPartyProportion: number;
+  firstPartyRaw: number;
+  externalRaw: number;
+  /** "Based on N reports matching …" — set only when this panel is showing
+   *  cohort-scoped data instead of the company-wide default (D-037, A4). */
+  caption?: string | null;
+}) {
   // Only worth rendering the split when there IS external evidence — otherwise
   // "100% first-party" is noise on a page that's entirely first-party anyway.
   if (externalRaw === 0) return null;
@@ -234,6 +258,7 @@ function EvidenceMix({ firstPartyProportion, firstPartyRaw, externalRaw }: { fir
   return (
     <div className="border border-rule bg-paper-sheet rounded-sm p-6 shadow-sheet mb-8">
       <h2 className="font-serif text-lg text-ink mb-3">Evidence mix</h2>
+      {caption && <p className="text-[10px] font-mono uppercase tracking-wider text-ink-faint mb-3">{caption}</p>}
       <div className="flex h-2 rounded-full overflow-hidden mb-3 bg-paper-sunk">
         <div className="bg-accent h-full" style={{ width: `${firstPartyProportion}%` }} />
         <div className="bg-ink-faint h-full" style={{ width: `${externalProportion}%` }} />
@@ -393,7 +418,17 @@ function ForecastPanel({
  * country and state, so we report what companies DID and never say what is
  * illegal. "No range shared" is an observation; it is never "refused".
  */
-function CompensationPanel({ profile, score }: { profile: CompensationProfile; score: PrivacyScoreResult | null }) {
+function CompensationPanel({
+  profile,
+  score,
+  caption,
+}: {
+  profile: CompensationProfile;
+  score: PrivacyScoreResult | null;
+  /** "Based on N reports matching …" — set only when this panel is showing
+   *  cohort-scoped data instead of the company-wide default (D-037, A4). */
+  caption?: string | null;
+}) {
   const shown = profile.dimensions.filter((d) => !d.suppressed && d.score !== null);
   if (shown.length === 0) return null;
   const tone = score === null ? "text-ink" : score.tier === "strong" ? "text-good" : score.tier === "mixed" ? "text-warn" : "text-bad";
@@ -410,6 +445,7 @@ function CompensationPanel({ profile, score }: { profile: CompensationProfile; s
       <p className="text-xs text-ink-muted mb-5">
         What candidates reported about salary questions and document requests. Higher is more privacy-respecting.
       </p>
+      {caption && <p className="text-[10px] font-mono uppercase tracking-wider text-ink-faint mb-4">{caption}</p>}
       <div className="space-y-3">
         {shown.map((d) => (
           <div key={d.key} className="py-1 border-b border-rule last:border-0">
@@ -443,7 +479,15 @@ function CompensationPanel({ profile, score }: { profile: CompensationProfile; s
  * — no Bar/tone coloring, unlike every other panel on this page, because
  * there is no good/bad direction to signal (see recruitmentIntel.ts's header).
  */
-function RecruitmentIntelPanel({ fingerprint }: { fingerprint: RecruitmentIntelFingerprint }) {
+function RecruitmentIntelPanel({
+  fingerprint,
+  caption,
+}: {
+  fingerprint: RecruitmentIntelFingerprint;
+  /** "Based on N reports matching …" — set only when this panel is showing
+   *  cohort-scoped data instead of the company-wide default (D-037, A4). */
+  caption?: string | null;
+}) {
   const shown = fingerprint.metrics.filter((m) => !m.suppressed && m.rate !== null);
   if (shown.length === 0) return null;
   return (
@@ -453,6 +497,7 @@ function RecruitmentIntelPanel({ fingerprint }: { fingerprint: RecruitmentIntelF
         What candidates reported about outreach and information requests. Plain shares, not a score —
         this panel makes no judgment about whether a given rate is good, bad, or lawful.
       </p>
+      {caption && <p className="text-[10px] font-mono uppercase tracking-wider text-ink-faint mb-4">{caption}</p>}
       <div className="space-y-3">
         {shown.map((m) => (
           <div key={m.key} className="py-1 border-b border-rule last:border-0">
@@ -830,6 +875,44 @@ function CohortSelector({ companySlug, filter }: { companySlug: string; filter: 
             ))}
           </select>
         </div>
+        {/* Hiring channel + payment requested (migration 0037, D-037) — same
+            uncontrolled-select-with-key pattern as the three axes above, same
+            reason: "Clear" navigates to the bare route and these DOM nodes are
+            reconciled in place, not remounted. */}
+        <div className="flex-1 min-w-[160px]">
+          <label htmlFor="hiring-channel-filter" className="block text-[10px] font-mono uppercase tracking-wider text-ink-muted mb-1.5">
+            Hiring channel
+          </label>
+          <select
+            key={`hiring-channel-${filter.hiringChannel ?? "none"}`}
+            id="hiring-channel-filter"
+            name="hiring_channel"
+            defaultValue={filter.hiringChannel ?? ""}
+            className={COHORT_SELECT_CLS}
+          >
+            <option value="">Everyone</option>
+            <option value="company_direct">Direct company</option>
+            <option value="consultancy_agency">Consultancy / agency</option>
+            <option value="referral">Referral</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div className="flex-1 min-w-[160px]">
+          <label htmlFor="payment-filter" className="block text-[10px] font-mono uppercase tracking-wider text-ink-muted mb-1.5">
+            Payment requested
+          </label>
+          <select
+            key={`payment-${filter.paymentRequested ?? "none"}`}
+            id="payment-filter"
+            name="payment"
+            defaultValue={filter.paymentRequested ?? ""}
+            className={COHORT_SELECT_CLS}
+          >
+            <option value="">Everyone</option>
+            <option value="no">No</option>
+            <option value="yes">Yes</option>
+          </select>
+        </div>
         <button
           type="submit"
           className="bg-accent text-paper-sheet px-4 py-2 text-sm font-medium rounded-sm hover:bg-accent-hover transition-colors shrink-0"
@@ -870,6 +953,8 @@ export default async function CompanyPage({ params, searchParams }: Props) {
     experienceBucket: parseExperienceBucket(searchParams?.experience),
     applicationChannel: parseApplicationChannel(searchParams?.channel),
     reporterType: parseReporterType(searchParams?.relationship),
+    hiringChannel: parseHiringChannel(searchParams?.hiring_channel),
+    paymentRequested: parsePaymentRequested(searchParams?.payment),
   };
   const cohortActive = !isEmptyCohort(cohortFilter);
   const companyName = companySlug.replace(/-/g, " ");
@@ -1057,6 +1142,33 @@ export default async function CompanyPage({ params, searchParams }: Props) {
   const cohortForecastAvailable = cohortForecastLines ? hasAnyForecast(cohortForecastLines) : false;
   const cohortHqs = cohortFingerprint ? computeHqs(cohortFingerprint) : null;
   const cohortDescription = describeCohort(cohortFilter);
+  // Cohort-level privacy floor (D-037, A5): protects the DISCLOSURE itself — a
+  // description plus a visible count — not just an individual metric. Five
+  // independent axes slice far finer than any single one; a per-metric floor
+  // alone can still leave "2 reports from 8+ years hired via consultancy who
+  // were asked to pay" visible as a description even if every metric inside
+  // it is separately suppressed. Below this floor: no count, no description,
+  // no metrics of any kind — same treatment as the "no reports match" case.
+  const cohortBelowFloor = cohortSet !== null && cohortSet.base.effectiveN < COHORT_MIN_EFFECTIVE_N;
+  const cohortRenderable = cohortActive && cohortSet !== null && !cohortBelowFloor;
+  // A filter is active but too thin (or zero) to disclose. The cohort
+  // selector's own section below explains WHY (its dedicated "no match" /
+  // "not enough" empty states) — these candidate-process panels must NOT
+  // silently fall back to unfiltered company-wide numbers here, since a
+  // visitor who just applied a narrow filter would read those numbers as
+  // answering their filter when they don't. Suppress entirely instead.
+  const cohortAppliedButUnrenderable = cohortActive && !cohortRenderable;
+  // The panels below were previously company-wide regardless of the cohort
+  // filter — extending cohort-scoping to them (never just hiding rows while
+  // leaving the aggregate unchanged) is the substantive part of D-037. Same
+  // "zero new formulas" discipline as cohortFingerprint above: same functions,
+  // fewer items.
+  const cohortCompensation = cohortRenderable ? buildCompensationProfile(cohortSet!.items) : null;
+  const cohortPrivacyScore = cohortCompensation ? computePrivacyScore(cohortCompensation) : null;
+  const cohortRecruitmentIntel = cohortRenderable ? buildRecruitmentIntelFingerprint(cohortSet!) : null;
+  const cohortEvidenceMixCaption = cohortRenderable
+    ? `Based on ${cohortSet!.base.rawTotal} ${cohortSet!.base.rawTotal === 1 ? "report" : "reports"} matching ${cohortDescription}`
+    : null;
 
   // Display rows for the External section — only fetched when external
   // evidence actually exists, so the common all-first-party company pays
@@ -1093,15 +1205,42 @@ export default async function CompanyPage({ params, searchParams }: Props) {
         {forecastAvailable && <ActionPanel plan={actionPlan} />}
 
         {/* Pay transparency & privacy — self-suppressing: renders nothing until
-            at least one dimension clears its floor. */}
-        <CompensationPanel profile={compensation} score={privacyScore} />
+            at least one dimension clears its floor. Cohort-scoped (D-037,
+            A4) when a filter is active and above COHORT_MIN_EFFECTIVE_N;
+            company-wide when no filter is active; suppressed entirely (never
+            a silent fallback to unfiltered numbers) when a filter is active
+            but too thin to disclose — see cohortAppliedButUnrenderable above. */}
+        {!cohortAppliedButUnrenderable && (
+          <CompensationPanel
+            profile={cohortRenderable ? cohortCompensation! : compensation}
+            score={cohortRenderable ? cohortPrivacyScore : privacyScore}
+            caption={cohortRenderable ? cohortEvidenceMixCaption : null}
+          />
+        )}
 
         {/* Outreach quality & information requests — self-suppressing: renders
-            nothing until a metric clears its floor. */}
-        <RecruitmentIntelPanel fingerprint={recruitmentIntel} />
+            nothing until a metric clears its floor. Cohort-scoped, same rule
+            as CompensationPanel above. */}
+        {!cohortAppliedButUnrenderable && (
+          <RecruitmentIntelPanel
+            fingerprint={cohortRenderable ? cohortRecruitmentIntel! : recruitmentIntel}
+            caption={cohortRenderable ? cohortEvidenceMixCaption : null}
+          />
+        )}
 
         {/* Tenure-stage panels (0020) — from employees and former employees,
-            each self-suppressing below its own floor. Ordered safest-first. */}
+            each self-suppressing below its own floor. Ordered safest-first.
+            COMPANY-WIDE, deliberately NOT cohort-scoped (D-037, A4): hiring
+            channel and payment are candidate-process facts, always null for
+            an employee/former-employee report — scoping these by a
+            hiring-channel filter would empty every panel below for a reason
+            no visitor could infer. */}
+        {cohortActive && (
+          <p className="text-[10px] font-mono uppercase tracking-wider text-ink-faint mb-2 -mt-4">
+            The panels below reflect all reports, not your filtered cohort — hiring channel and
+            payment apply only to the interview process, not to being an employee here.
+          </p>
+        )}
         <OffboardingPanel profile={offboarding} score={exitIntegrity} />
         <CulturePanel signal={culture} />
         {hasAnyCultureThemeSignal(cultureThemeCloud) && <CultureThemePanel themes={cultureThemeCloud} />}
@@ -1120,7 +1259,30 @@ export default async function CompanyPage({ params, searchParams }: Props) {
             as the forecast above — a candidate deciding whether to apply has
             nothing to trade yet, so this cannot sit behind the unlock gate. */}
         <CohortSelector companySlug={companySlug} filter={cohortFilter} />
-        {cohortActive && cohortForecastLines && (
+        {/* Three distinct cases, per D-037/A5's disclosure floor:
+            1. Genuinely zero matches — safe to name the cohort (there is
+               nothing to identify).
+            2. 1..COHORT_MIN_EFFECTIVE_N-1 matches — reports exist but too few
+               to disclose safely. NO count, NO cohort description, NO
+               metrics: naming the filter combination alongside "these few
+               reports exist" is itself the disclosure this floor exists to
+               prevent, even with every individual metric still suppressed.
+            3. At or above the floor — full cohort-scoped forecast (or its own
+               "not enough for THIS forecast, but the cohort itself is
+               disclosable" empty state). */}
+        {cohortActive && cohortSet && cohortSet.base.rawTotal === 0 && (
+          <div className="border border-dashed border-rule-strong bg-paper-sheet rounded-sm p-8 text-center mb-8">
+            <p className="text-sm text-ink-soft mb-1">No reports match {cohortDescription} yet.</p>
+            <p className="text-xs text-ink-muted">Try a broader filter, or check back as more reports come in.</p>
+          </div>
+        )}
+        {cohortActive && cohortBelowFloor && cohortSet && cohortSet.base.rawTotal > 0 && (
+          <div className="border border-dashed border-rule-strong bg-paper-sheet rounded-sm p-8 text-center mb-8">
+            <p className="text-sm text-ink-soft mb-1">Not enough matching reports to show yet.</p>
+            <p className="text-xs text-ink-muted">Try a broader filter — a narrow combination can&apos;t be shown until more people report the same thing.</p>
+          </div>
+        )}
+        {cohortRenderable && cohortForecastLines && (
           cohortForecastAvailable ? (
             <ForecastPanel
               lines={cohortForecastLines}
@@ -1131,7 +1293,9 @@ export default async function CompanyPage({ params, searchParams }: Props) {
             />
           ) : (
             <div className="border border-dashed border-rule-strong bg-paper-sheet rounded-sm p-8 text-center mb-8">
-              <p className="text-sm text-ink-soft mb-1">No reports match {cohortDescription} yet.</p>
+              <p className="text-sm text-ink-soft mb-1">
+                {cohortSet!.base.rawTotal} {cohortSet!.base.rawTotal === 1 ? "report matches" : "reports match"} {cohortDescription}, not yet enough for a forecast.
+              </p>
               <p className="text-xs text-ink-muted">Try a broader filter, or check back as more reports come in.</p>
             </div>
           )
@@ -1175,20 +1339,37 @@ export default async function CompanyPage({ params, searchParams }: Props) {
         <SimilarCompanies rows={similar} />
 
         {/* Evidence mix — only renders when external evidence exists. Shown
-            regardless of unlock state: it's provenance, not the insight itself. */}
-        <EvidenceMix
-          firstPartyProportion={firstPartyProportion}
-          firstPartyRaw={firstPartyRaw}
-          externalRaw={externalRaw}
-        />
+            regardless of unlock state: it's provenance, not the insight itself.
+            Cohort-scoped (D-037, A4): every external item has hiringChannel/
+            paymentRequestedBy hardcoded null (normalize.ts field asymmetry),
+            so a hiring-channel or payment filter correctly drives externalRaw
+            to 0 here and the panel self-suppresses — never a misrepresentation.
+            Explicitly suppressed (not a fallback to unfiltered numbers) when
+            a filter is active but too thin to disclose. */}
+        {!cohortAppliedButUnrenderable && (
+          <EvidenceMix
+            firstPartyProportion={cohortRenderable ? Math.round(cohortSet!.base.firstPartyProportion * 100) : firstPartyProportion}
+            firstPartyRaw={cohortRenderable ? cohortSet!.base.firstPartyRaw : firstPartyRaw}
+            externalRaw={cohortRenderable ? cohortSet!.base.externalRaw : externalRaw}
+            caption={cohortRenderable ? cohortEvidenceMixCaption : null}
+          />
+        )}
 
         {isUnlocked ? (
           <>
+            {!cohortAppliedButUnrenderable && (
             <div className="grid md:grid-cols-2 gap-6 mb-8">
-              {/* Behavioural breakdown */}
+              {/* Behavioural breakdown — cohort-scoped (D-037, A4): same
+                  BehaviouralDimensionScore[] shape either way, just computed
+                  from cohortFingerprint when a filter is active. Explicitly
+                  suppressed (not a fallback to unfiltered numbers) when a
+                  filter is active but too thin to disclose. */}
               <div className="border border-rule bg-paper-sheet rounded-sm p-6 shadow-sheet">
                 <h2 className="font-serif text-lg text-ink mb-4">Behavioural fingerprint</h2>
-                {fingerprint.dimensions.map((d) => (
+                {cohortEvidenceMixCaption && cohortRenderable && (
+                  <p className="text-[10px] font-mono uppercase tracking-wider text-ink-faint mb-3">{cohortEvidenceMixCaption}</p>
+                )}
+                {(cohortRenderable ? cohortFingerprint!.dimensions : fingerprint.dimensions).map((d) => (
                   <DimensionRow key={d.key} dim={d} />
                 ))}
                 <p className="text-[10px] text-ink-faint mt-4 leading-relaxed">
@@ -1198,16 +1379,33 @@ export default async function CompanyPage({ params, searchParams }: Props) {
               </div>
 
               {/* Stage distribution — raw counts across families. Weighted-share
-                  is deferred to the analytics surfaces (M6). */}
+                  is deferred to the analytics surfaces (M6). Cohort-scoped. */}
               <div className="border border-rule bg-paper-sheet rounded-sm p-6 shadow-sheet">
                 <h2 className="font-serif text-lg text-ink mb-4">Stage distribution</h2>
-                <StageBar items={items} />
+                {cohortEvidenceMixCaption && cohortRenderable && (
+                  <p className="text-[10px] font-mono uppercase tracking-wider text-ink-faint mb-3">{cohortEvidenceMixCaption}</p>
+                )}
+                <StageBar items={cohortRenderable ? cohortSet!.items : items} />
               </div>
             </div>
+            )}
 
             {/* Likert facet rollup + emotions (0003/0017) — self-suppressing,
-                see hasAnyLikertSignal. */}
-            {hasAnyLikertSignal(likertFingerprint) && <LikertPanel fingerprint={likertFingerprint} />}
+                see hasAnyLikertSignal. COMPANY-WIDE, not cohort-scoped
+                (D-037, A4) — facet ratings cover culture/process dimensions
+                candidates, employees, and former employees all answer;
+                narrowing by hiring channel would exclude every non-candidate
+                rating for a reason no visitor could infer. */}
+            {hasAnyLikertSignal(likertFingerprint) && (
+              <>
+                {cohortActive && (
+                  <p className="text-[10px] font-mono uppercase tracking-wider text-ink-faint mb-2">
+                    Reflects all reports, not your filtered cohort.
+                  </p>
+                )}
+                <LikertPanel fingerprint={likertFingerprint} />
+              </>
+            )}
 
             {/* External reports — clearly labelled, source-linked, visually
                 distinct (dashed border, sunk background). Part 6 non-negotiable. */}

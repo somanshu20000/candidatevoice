@@ -28,6 +28,8 @@ import type {
   OutreachQuality,
   SensitiveInfoRequested,
   SensitiveInfoStage,
+  HiringChannel,
+  PaymentRequestedBy,
 } from "@/types/index";
 import type { EvidenceItem } from "./types";
 import type { RawFirstPartyRow, RawExternalRow } from "./load";
@@ -67,6 +69,10 @@ const VERIFICATION_TIERS: readonly string[] = ["unverified", "inbox_verified", "
 const OUTREACH_QUALITIES: readonly string[] = ["profile_reviewed_relevant", "generic_outreach", "obvious_mismatch"];
 const SENSITIVE_INFO_REQUESTED_VALUES: readonly string[] = ["none", "aadhaar", "pan", "bank_details", "salary_slips", "other"];
 const SENSITIVE_INFO_STAGES: readonly string[] = ["none", "screening", "interview", "before_offer", "after_offer"];
+// Hiring channel + payment attribution (migration 0037). null = unanswered
+// (excluded), same rule as every enum above.
+const HIRING_CHANNELS: readonly string[] = ["company_direct", "consultancy_agency", "referral", "other"];
+const PAYMENT_REQUESTED_BY_VALUES: readonly string[] = ["company", "consultancy_agency", "other", "not_sure"];
 
 /**
  * Narrow a raw string to its enum type, or null. The DB's own CHECK
@@ -134,6 +140,8 @@ export function normalizeFirstParty(rows: RawFirstPartyRow[]): EvidenceItem[] {
       sensitiveInfoStage: asEnum<SensitiveInfoStage>(r.sensitive_info_stage, SENSITIVE_INFO_STAGES),
       sensitiveInfoPurposeExplained: r.sensitive_info_purpose_explained,
       sensitiveInfoNecessaryPerceived: r.sensitive_info_necessary_perceived,
+      hiringChannel: asEnum<HiringChannel>(r.hiring_channel, HIRING_CHANNELS),
+      paymentRequestedBy: asEnum<PaymentRequestedBy>(r.payment_requested_by, PAYMENT_REQUESTED_BY_VALUES),
     }));
 }
 
@@ -202,6 +210,11 @@ export function normalizeExternal(rows: RawExternalRow[], globalMultiplier: numb
         sensitiveInfoStage: null,
         sensitiveInfoPurposeExplained: null,
         sensitiveInfoNecessaryPerceived: null,
+        // Field asymmetry, not a mapping bug (migration 0037 columns are
+        // first-party only): a third-party forum post cannot structurally
+        // know who the candidate's employer-of-record was.
+        hiringChannel: null,
+        paymentRequestedBy: null,
       };
     });
 }

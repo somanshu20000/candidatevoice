@@ -208,6 +208,16 @@ const RECRUITMENT_INTEL_FIELDS: { key: string; allowed: readonly string[] }[] = 
   { key: "sensitive_info_stage", allowed: VALID_SENSITIVE_INFO_STAGES },
 ];
 
+// Hiring channel + payment attribution (migration 0037, D-037). Mirrors the
+// CHECK constraints; tests/submit-validators.test.ts asserts the sync.
+// Candidate-knowable by definition, same gate as RECRUITMENT_INTEL_FIELDS.
+const VALID_HIRING_CHANNELS = ["company_direct", "consultancy_agency", "referral", "other"];
+const VALID_PAYMENT_REQUESTED_BY = ["company", "consultancy_agency", "other", "not_sure"];
+
+const HIRING_CHANNEL_FIELDS: { key: string; allowed: readonly string[] }[] = [
+  { key: "hiring_channel", allowed: VALID_HIRING_CHANNELS },
+];
+
 /**
  * Optional boolean — same "absent is valid" contract as validateOptionalEnum,
  * for the two recruitment-intel yes/no fields. A present-but-non-boolean
@@ -426,6 +436,30 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: necessaryPerceivedValidation.error }, { status: 400 });
     }
 
+    // Hiring channel (0037) — candidate-knowable only, same gate as
+    // RECRUITMENT_INTEL_FIELDS: forced null for a non-candidate report.
+    const hiringChannelValues: Record<string, string | null> = {};
+    for (const f of HIRING_CHANNEL_FIELDS) {
+      if (!isCandidate) {
+        hiringChannelValues[f.key] = null;
+        continue;
+      }
+      const r = validateOptionalEnum((body as Record<string, unknown>)[f.key], f.allowed, f.key);
+      if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
+      hiringChannelValues[f.key] = r.value;
+    }
+    // Payment attribution (0037) — meaningful only when payment_flag is true;
+    // forced null otherwise regardless of what the client sent, so a tampered
+    // payload can never write an attribution for a report that says no
+    // payment was requested. payment_flag itself is untouched by this field.
+    const paymentRequestedByValidation =
+      isCandidate && Boolean(body.payment_flag)
+        ? validateOptionalEnum(body.payment_requested_by, VALID_PAYMENT_REQUESTED_BY, "payment_requested_by")
+        : { ok: true as const, value: null };
+    if (!paymentRequestedByValidation.ok) {
+      return NextResponse.json({ error: paymentRequestedByValidation.error }, { status: 400 });
+    }
+
     const payload: SubmissionInsert = {
       company: normalizeCompanySlug(sanitizeAndTruncate(String(body.company ?? ""), 100)),
       role: sanitizeAndTruncate(String(body.role ?? ""), FIELD_LIMITS.ROLE_TITLE),
@@ -435,8 +469,10 @@ export async function POST(req: NextRequest) {
       ...salaryValues,
       ...tenureValues,
       ...recruitmentIntelValues,
+      ...hiringChannelValues,
       sensitive_info_purpose_explained: purposeExplainedValidation.value,
       sensitive_info_necessary_perceived: necessaryPerceivedValidation.value,
+      payment_requested_by: paymentRequestedByValidation.value as SubmissionInsert["payment_requested_by"],
       stage: isCandidate ? body.stage : null,
       outcome: isCandidate ? body.outcome : null,
       response_time_bucket: isCandidate ? body.response_time_bucket : null,

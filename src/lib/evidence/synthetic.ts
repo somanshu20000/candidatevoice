@@ -60,5 +60,9 @@ export function minimalEvidenceItem(
     sensitiveInfoStage: null,
     sensitiveInfoPurposeExplained: null,
     sensitiveInfoNecessaryPerceived: null,
+    // Same reasoning as outreachQuality above: these model
+    // opportunities/ratings/emotions, not a submission's hiring-channel facts.
+    hiringChannel: null,
+    paymentRequestedBy: null,
   };
 }

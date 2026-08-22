@@ -23,6 +23,8 @@ import type {
   OutreachQuality,
   SensitiveInfoRequested,
   SensitiveInfoStage,
+  HiringChannel,
+  PaymentRequestedBy,
 } from "@/types/index";
 import type { PerceivedSeriousness, IntentReason } from "@/lib/hiring-intent/events";
 import { INTENT_REASON_VALUES } from "@/lib/hiring-intent/events";
@@ -97,6 +99,10 @@ interface FormState {
    *  It only powers cohort filtering on the company page; adding friction here
    *  fights the platform's actual bottleneck (evidence acquisition). */
   application_channel: ApplicationChannel | "";
+  /** Hiring channel (migration 0037, D-037) — who the employing intermediary
+   *  was. A DIFFERENT axis from application_channel (how the candidate
+   *  applied/found the role); neither subsumes the other. Optional. */
+  hiring_channel: HiringChannel | "";
   stage: Stage | "";
   outcome: Outcome | "";
   response_time_bucket: ResponseTimeBucket | "";
@@ -105,6 +111,10 @@ interface FormState {
   first_interaction_outcome: FirstInteractionOutcome | "";
   reason: string;
   payment_flag: PaymentFlagOption | "";
+  /** Payment attribution (migration 0037, D-037) — WHO requested payment, only
+   *  meaningful when payment_flag answers "yes" in some form. Never changes
+   *  payment_flag itself. "" means unanswered → null. */
+  payment_requested_by: PaymentRequestedBy | "";
   /** Compensation privacy (0018). All optional; "" means unanswered → null. */
   salary_history_stage: SalaryHistoryStage | "";
   salary_proof_type: SalaryProofType | "";
@@ -233,11 +243,11 @@ const EMPTY: FormState = {
   relationship: "candidate",
   company: "", company_organization_id: null, company_confirmed_name: null,
   company_not_listed: false, company_request_domain: "",
-  role: "", experience_bucket: "", application_channel: "",
+  role: "", experience_bucket: "", application_channel: "", hiring_channel: "",
   stage: "", outcome: "",
   response_time_bucket: "", last_interaction_gap: "",
   call_duration: "", first_interaction_outcome: "",
-  reason: "", payment_flag: "",
+  reason: "", payment_flag: "", payment_requested_by: "",
   salary_history_stage: "", salary_proof_type: "", salary_proof_stage: "", salary_range_disclosed: "",
   outreach_quality: "", sensitive_info_requested: "", sensitive_info_stage: "",
   sensitive_info_purpose_explained: "", sensitive_info_necessary_perceived: "",
@@ -577,6 +587,7 @@ export default function SubmitPage() {
       // the route independently enforces server-side (defense in depth: even
       // if this client-side branch had a bug, the route would still null them).
       application_channel: isCandidate && form.application_channel !== "" ? form.application_channel : null,
+      hiring_channel: isCandidate && form.hiring_channel !== "" ? form.hiring_channel : null,
       stage: isCandidate ? (form.stage as Stage) : null,
       outcome: isCandidate ? (form.outcome as Outcome) : null,
       response_time_bucket: isCandidate ? (form.response_time_bucket as ResponseTimeBucket) : null,
@@ -585,6 +596,13 @@ export default function SubmitPage() {
       first_interaction_outcome: isCandidate ? (form.first_interaction_outcome as FirstInteractionOutcome) : null,
       reason: isCandidate ? form.reason : null,
       payment_flag: isCandidate && form.payment_flag !== "no",
+      // Attribution only, meaningful only when payment was actually requested.
+      // Forced null otherwise regardless of what's in state — mirrors the
+      // route's own defense-in-depth gate on payment_flag.
+      payment_requested_by:
+        isCandidate && form.payment_flag !== "" && form.payment_flag !== "no" && form.payment_requested_by !== ""
+          ? form.payment_requested_by
+          : null,
       // "" means unanswered — send null so the column stays null, never "no".
       // Compensation privacy (0018) is candidate-knowable only, per its own header.
       salary_history_stage: isCandidate ? form.salary_history_stage || null : null,
@@ -879,6 +897,28 @@ export default function SubmitPage() {
                   </p>
                 </div>
               )}
+              {/* Hiring channel (migration 0037, D-037) — a different axis from
+                  application_channel above: who the employing intermediary
+                  was, not how the candidate found/applied to the role. */}
+              {form.relationship === "candidate" && (
+                <div>
+                  <label htmlFor="hiring-channel" className={LABEL_CLS}>
+                    Who hired you? <span className="text-ink-faint font-normal">(optional)</span>
+                  </label>
+                  <select
+                    id="hiring-channel"
+                    value={form.hiring_channel}
+                    onChange={(e) => set("hiring_channel", e.target.value as HiringChannel | "")}
+                    className={SELECT_CLS}
+                  >
+                    <option value="">Prefer not to say</option>
+                    <option value="company_direct">Company HR / direct</option>
+                    <option value="consultancy_agency">Recruitment consultancy / agency</option>
+                    <option value="referral">Employee referral</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+              )}
             </div>
           )}
 
@@ -983,6 +1023,29 @@ export default function SubmitPage() {
                   <option value="training_fee">Training fee</option>
                 </select>
               </div>
+              {/* Attribution only (migration 0037, D-037) — never a second
+                  "did it happen" question; payment_flag above already answers
+                  that. Shown only once payment_flag says something was
+                  requested, so the question reads as "who" not "whether". */}
+              {form.payment_flag !== "" && form.payment_flag !== "no" && (
+                <div>
+                  <label htmlFor="payment-requested-by" className={LABEL_CLS}>
+                    Was any payment requested? <span className="text-ink-faint font-normal">(optional)</span>
+                  </label>
+                  <select
+                    id="payment-requested-by"
+                    value={form.payment_requested_by}
+                    onChange={(e) => set("payment_requested_by", e.target.value as PaymentRequestedBy | "")}
+                    className={SELECT_CLS}
+                  >
+                    <option value="">Prefer not to say</option>
+                    <option value="company">Yes — by the company</option>
+                    <option value="consultancy_agency">Yes — by a consultancy/agency</option>
+                    <option value="other">Yes — other</option>
+                    <option value="not_sure">Not sure who</option>
+                  </select>
+                </div>
+              )}
 
               {/* Compensation transparency & privacy (migration 0018). All optional
                   — "Prefer not to say" leaves the column null, which every metric

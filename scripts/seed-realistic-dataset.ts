@@ -114,6 +114,9 @@ const CULTURE_THEME_KEYS = [
   "unclear_expectations", "limited_growth_paths",
 ] as const;
 const VERIFICATION_TIERS = ["unverified", "inbox_verified", "contact_domain", "attested"] as const;
+// Hiring channel + payment attribution (migration 0037, D-037).
+const HIRING_CHANNELS = ["company_direct", "consultancy_agency", "referral", "other"] as const;
+const PAYMENT_REQUESTED_BY = ["company", "consultancy_agency", "other", "not_sure"] as const;
 const DEMO_ROLES = ["Software Engineer", "Product Manager", "Data Analyst", "UX Designer", "DevOps Engineer", "Account Manager", "Operations Lead"];
 
 // --- Demo organizations (fictional, realistic-styled, never a real employer)
@@ -159,6 +162,7 @@ interface SubmissionPayload {
   outreach_quality?: string; sensitive_info_requested?: string; sensitive_info_stage?: string;
   would_recommend?: string; conduct_environment?: string; tenure_bucket?: string;
   verification_tier?: string;
+  hiring_channel?: string; payment_requested_by?: string;
   is_approved: boolean;
 }
 
@@ -191,6 +195,15 @@ function generateCandidateRow(rand: () => number, org: { name: string; id: strin
     payload.sensitive_info_requested = pick(rand, SENSITIVE_INFO);
     if (payload.sensitive_info_requested !== "none") payload.sensitive_info_stage = pick(rand, SENSITIVE_INFO_STAGES);
   }
+  // Hiring channel + payment attribution (migration 0037, D-037). ~30% left
+  // unanswered ("prefer not to say") — same optionality shape as
+  // outreach_quality/sensitive_info above — so the seed exercises both the
+  // answered and unanswered-excluded-from-metrics paths. payment_requested_by
+  // is only ever set when payment_flag is true (mirrors the route's own gate)
+  // and itself has a real chance of staying unanswered, covering the
+  // "payment requested, unsure by whom" edge case explicitly.
+  if (rand() < 0.7) payload.hiring_channel = pick(rand, HIRING_CHANNELS);
+  if (payload.payment_flag && rand() < 0.6) payload.payment_requested_by = pick(rand, PAYMENT_REQUESTED_BY);
   if (profile.varyVerificationTier) payload.verification_tier = VERIFICATION_TIERS[i % VERIFICATION_TIERS.length];
   return payload;
 }

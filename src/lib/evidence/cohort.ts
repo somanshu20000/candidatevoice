@@ -21,7 +21,7 @@
 
 import type { EvidenceItem, EvidenceSet } from "./types";
 import { describeBase } from "./aggregate";
-import type { ExperienceBucket, ApplicationChannel, ReporterType } from "@/types/index";
+import type { ExperienceBucket, ApplicationChannel, ReporterType, HiringChannel, PaymentRequestedBy } from "@/types/index";
 
 /**
  * All three dimensions are OPTIONAL and independent — omitting a key means
@@ -39,15 +39,44 @@ import type { ExperienceBucket, ApplicationChannel, ReporterType } from "@/types
  * cohort filter that also excludes the wrong relationship is redundant with
  * (never in conflict with) what those panels already do.
  */
+/**
+ * Whether payment was requested, as a cohort axis. Deliberately only "no" /
+ * "yes" — `payment_flag` is a REQUIRED boolean (never null), so there is no
+ * captured "not sure whether payment was requested" signal to filter on. The
+ * new `payment_requested_by` enum's `not_sure` value answers a different,
+ * narrower question (WHO, given payment was already known to be requested) —
+ * see PaymentRequestedBy's doc comment in @/types/index. Offering a
+ * fabricated "not sure" bucket here would filter on data that doesn't exist.
+ */
+export type PaymentRequestedFilter = "no" | "yes";
+
 export interface CohortFilter {
   experienceBucket?: ExperienceBucket;
   applicationChannel?: ApplicationChannel;
   reporterType?: ReporterType;
+  /** Who the employing intermediary was (migration 0037). A different axis
+   *  from applicationChannel — see HiringChannel's own doc comment. */
+  hiringChannel?: HiringChannel;
+  /** Whether payment was requested. See PaymentRequestedFilter above for why
+   *  this is two-valued, not three. */
+  paymentRequested?: PaymentRequestedFilter;
 }
+
+/** effectiveN floor for a filtered cohort to render its count/description at
+ *  all — protects the DISCLOSURE itself (a description plus a count), not
+ *  just a metric behind it. Five independent axes slice far finer than any
+ *  single one; a per-metric floor alone is not enough at a small employer. */
+export const COHORT_MIN_EFFECTIVE_N = 3;
 
 /** True when the filter constrains nothing — the "everyone" / cleared state. */
 export function isEmptyCohort(filter: CohortFilter): boolean {
-  return filter.experienceBucket === undefined && filter.applicationChannel === undefined && filter.reporterType === undefined;
+  return (
+    filter.experienceBucket === undefined &&
+    filter.applicationChannel === undefined &&
+    filter.reporterType === undefined &&
+    filter.hiringChannel === undefined &&
+    filter.paymentRequested === undefined
+  );
 }
 
 /**
@@ -63,6 +92,13 @@ export function filterByCohort(items: EvidenceItem[], filter: CohortFilter): Evi
     if (filter.experienceBucket !== undefined && item.experienceBucket !== filter.experienceBucket) return false;
     if (filter.applicationChannel !== undefined && item.applicationChannel !== filter.applicationChannel) return false;
     if (filter.reporterType !== undefined && item.reporterType !== filter.reporterType) return false;
+    if (filter.hiringChannel !== undefined && item.hiringChannel !== filter.hiringChannel) return false;
+    if (filter.paymentRequested !== undefined) {
+      // "yes" matches paymentFlag === true regardless of attribution; a report
+      // with no attribution answer still honestly says payment was requested.
+      const wantsYes = filter.paymentRequested === "yes";
+      if (item.paymentFlag !== wantsYes) return false;
+    }
     return true;
   });
 }
@@ -109,6 +145,18 @@ export const REPORTER_TYPE_LABELS: Record<ReporterType, string> = {
   former_employee: "former-employee reports",
 };
 
+export const HIRING_CHANNEL_LABELS: Record<HiringChannel, string> = {
+  company_direct: "hired directly by the company",
+  consultancy_agency: "hired through a consultancy/agency",
+  referral: "hired through a referral",
+  other: "hired through another channel",
+};
+
+export const PAYMENT_REQUESTED_LABELS: Record<PaymentRequestedFilter, string> = {
+  no: "no payment requested",
+  yes: "payment requested",
+};
+
 /**
  * Plain-language description of an active cohort, for the panel subtitle —
  * e.g. "3–5 years of experience, applying via a referral". Returns null for
@@ -119,6 +167,8 @@ export function describeCohort(filter: CohortFilter): string | null {
   if (filter.experienceBucket !== undefined) parts.push(EXPERIENCE_BUCKET_LABELS[filter.experienceBucket]);
   if (filter.applicationChannel !== undefined) parts.push(`applying via ${APPLICATION_CHANNEL_LABELS[filter.applicationChannel]}`);
   if (filter.reporterType !== undefined) parts.push(REPORTER_TYPE_LABELS[filter.reporterType]);
+  if (filter.hiringChannel !== undefined) parts.push(HIRING_CHANNEL_LABELS[filter.hiringChannel]);
+  if (filter.paymentRequested !== undefined) parts.push(PAYMENT_REQUESTED_LABELS[filter.paymentRequested]);
   if (parts.length === 0) return null;
   return parts.join(", ");
 }
@@ -126,6 +176,8 @@ export function describeCohort(filter: CohortFilter): string | null {
 const EXPERIENCE_BUCKETS: readonly ExperienceBucket[] = ["0-1", "1-3", "3-5", "5-8", "8+"];
 const APPLICATION_CHANNELS: readonly ApplicationChannel[] = ["referral", "recruiter_outreach", "job_board", "company_website", "other"];
 const REPORTER_TYPES: readonly ReporterType[] = ["candidate", "employee", "former_employee"];
+const HIRING_CHANNELS: readonly HiringChannel[] = ["company_direct", "consultancy_agency", "referral", "other"];
+const PAYMENT_REQUESTED_VALUES: readonly PaymentRequestedFilter[] = ["no", "yes"];
 
 /** Narrow an arbitrary query-param string to a valid bucket, or undefined. Never throws on garbage input — a malformed URL just falls back to "everyone". */
 export function parseExperienceBucket(value: string | undefined): ExperienceBucket | undefined {
@@ -138,4 +190,12 @@ export function parseApplicationChannel(value: string | undefined): ApplicationC
 
 export function parseReporterType(value: string | undefined): ReporterType | undefined {
   return value !== undefined && (REPORTER_TYPES as readonly string[]).includes(value) ? (value as ReporterType) : undefined;
+}
+
+export function parseHiringChannel(value: string | undefined): HiringChannel | undefined {
+  return value !== undefined && (HIRING_CHANNELS as readonly string[]).includes(value) ? (value as HiringChannel) : undefined;
+}
+
+export function parsePaymentRequested(value: string | undefined): PaymentRequestedFilter | undefined {
+  return value !== undefined && (PAYMENT_REQUESTED_VALUES as readonly string[]).includes(value) ? (value as PaymentRequestedFilter) : undefined;
 }

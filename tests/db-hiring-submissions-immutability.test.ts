@@ -39,6 +39,10 @@ const RECRUITMENT_INTEL = readFileSync(
   join(process.cwd(), "supabase/migrations/0033_recruitment_process_intel.sql"),
   "utf8"
 );
+const HIRING_CHANNEL = readFileSync(
+  join(process.cwd(), "supabase/migrations/0037_hiring_channel.sql"),
+  "utf8"
+);
 
 // Every real column on hiring_submissions (0000_baseline_hiring_submissions.sql
 // + 0002/0014/0018/0019/0020's additions), EXCLUDING the three the guard must
@@ -80,6 +84,13 @@ const IMMUTABLE_COLUMNS_0033 = [
   "sensitive_info_stage",
   "sensitive_info_purpose_explained",
   "sensitive_info_necessary_perceived",
+];
+// hiring_channel + payment_requested_by (0037, D-037) — everything the
+// 0037-redefined guard must lock, on top of everything through 0033.
+const IMMUTABLE_COLUMNS_0037 = [
+  ...IMMUTABLE_COLUMNS_0033,
+  "hiring_channel",
+  "payment_requested_by",
 ];
 
 describe("0025 — hiring_submissions_guard_immutable column coverage", () => {
@@ -228,6 +239,65 @@ describe("0033 — Recruitment Process Intelligence columns are locked by the re
     for (const col of ["outreach_quality", "sensitive_info_requested", "sensitive_info_stage", "sensitive_info_purpose_explained", "sensitive_info_necessary_perceived"]) {
       expect(RECRUITMENT_INTEL.includes(`s.${col}`), `public_submissions is missing s.${col}`).toBe(true);
     }
+  });
+});
+
+describe("0037 — hiring channel + payment attribution columns are locked by the redefined guard function", () => {
+  function guardBody(sql: string): string {
+    const start = sql.indexOf("function hiring_submissions_guard_immutable()");
+    expect(start, "0037 must redefine hiring_submissions_guard_immutable()").toBeGreaterThan(-1);
+    const bodyStart = sql.indexOf("as $$", start);
+    const bodyEnd = sql.indexOf("$$;", bodyStart);
+    return sql.slice(bodyStart, bodyEnd);
+  }
+
+  it("0037 redefines the guard via CREATE OR REPLACE, not a new function/trigger", () => {
+    expect(HIRING_CHANNEL).toMatch(/create or replace function hiring_submissions_guard_immutable\(\)/);
+    expect(HIRING_CHANNEL).not.toMatch(/create trigger hiring_submissions_immutable/);
+  });
+
+  it("the redefined guard locks every column through 0037, including the two new ones (no rewrite regression)", () => {
+    const body = guardBody(HIRING_CHANNEL);
+    for (const col of IMMUTABLE_COLUMNS_0037) {
+      expect(
+        body.includes(`new.${col}`) && body.includes(`old.${col}`),
+        `0037's redefined guard is missing a check for column "${col}" — it would be silently mutable`
+      ).toBe(true);
+    }
+  });
+
+  it("the redefined guard still leaves the three legitimate mutation columns mutable", () => {
+    const body = guardBody(HIRING_CHANNEL);
+    for (const col of MUTABLE_COLUMNS) {
+      expect(
+        new RegExp(`new\\.${col}\\b`).test(body),
+        `0037's redefined guard unexpectedly checks column "${col}" — this must stay mutable`
+      ).toBe(false);
+    }
+  });
+
+  it("adds a NOT VALID CHECK for each new enum column, matching the additive-CHECK convention", () => {
+    expect(HIRING_CHANNEL).toMatch(/hiring_submissions_hiring_channel_check/);
+    expect(HIRING_CHANNEL).toMatch(/hiring_submissions_payment_requested_by_check/);
+  });
+
+  it("submit_hiring_report and public_submissions both carry the two new columns", () => {
+    expect(HIRING_CHANNEL).toMatch(/create or replace function submit_hiring_report/);
+    expect(HIRING_CHANNEL).toMatch(/create or replace view public_submissions/);
+    for (const col of ["hiring_channel", "payment_requested_by"]) {
+      expect(HIRING_CHANNEL.includes(`s.${col}`), `public_submissions is missing s.${col}`).toBe(true);
+    }
+  });
+
+  it("the two new columns are appended at the END of the public_submissions select list — mid-list insertion reads as a rename to Postgres (42P16)", () => {
+    const viewStart = HIRING_CHANNEL.indexOf("create or replace view public_submissions");
+    const viewEnd = HIRING_CHANNEL.indexOf("from hiring_submissions s", viewStart);
+    const selectList = HIRING_CHANNEL.slice(viewStart, viewEnd);
+    const hiringChannelIdx = selectList.indexOf("s.hiring_channel");
+    const paymentRequestedByIdx = selectList.indexOf("s.payment_requested_by");
+    const sensitiveNecessaryIdx = selectList.indexOf("s.sensitive_info_necessary_perceived"); // last 0033 column
+    expect(hiringChannelIdx).toBeGreaterThan(sensitiveNecessaryIdx);
+    expect(paymentRequestedByIdx).toBeGreaterThan(hiringChannelIdx);
   });
 });
 

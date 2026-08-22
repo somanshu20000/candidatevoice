@@ -87,9 +87,15 @@ export {
   parseExperienceBucket,
   parseApplicationChannel,
   parseReporterType,
+  parseHiringChannel,
+  parsePaymentRequested,
   EXPERIENCE_BUCKET_LABELS,
   APPLICATION_CHANNEL_LABELS,
   REPORTER_TYPE_LABELS,
+  HIRING_CHANNEL_LABELS,
+  PAYMENT_REQUESTED_LABELS,
+  COHORT_MIN_EFFECTIVE_N,
   type CohortFilter,
+  type PaymentRequestedFilter,
 } from "./cohort";
 export { inspectEvidence, type EvidenceInspection, type InspectionBand } from "./inspector";

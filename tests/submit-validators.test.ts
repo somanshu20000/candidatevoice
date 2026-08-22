@@ -280,3 +280,82 @@ describe("Recruitment Process Intelligence enum sync (migration 0033, D-031)", (
     }
   });
 });
+
+describe("Hiring channel + payment attribution enum sync (migration 0037, D-037)", () => {
+  // Same three-independently-maintained-copies risk as every enum block
+  // above: DB CHECK constraint, the route's VALID_* arrays, the TS union in
+  // types/index.ts.
+  const ROUTE = {
+    hiring_channel: ["company_direct", "consultancy_agency", "referral", "other"],
+    payment_requested_by: ["company", "consultancy_agency", "other", "not_sure"],
+  };
+
+  // Must match 0037's CHECK constraints exactly (order irrelevant).
+  const MIGRATION_0037 = {
+    hiring_channel: ["company_direct", "consultancy_agency", "referral", "other"],
+    payment_requested_by: ["company", "consultancy_agency", "other", "not_sure"],
+  };
+
+  // types/index.ts's HiringChannel / PaymentRequestedBy unions.
+  const TYPES_INDEX = {
+    hiring_channel: ["company_direct", "consultancy_agency", "referral", "other"],
+    payment_requested_by: ["company", "consultancy_agency", "other", "not_sure"],
+  };
+
+  it.each(Object.keys(ROUTE))("%s matches the migration's CHECK constraint", (field) => {
+    const k = field as keyof typeof ROUTE;
+    expect([...ROUTE[k]].sort()).toEqual([...MIGRATION_0037[k]].sort());
+  });
+
+  it.each(Object.keys(ROUTE))("%s matches the TS union in types/index.ts", (field) => {
+    const k = field as keyof typeof ROUTE;
+    expect([...ROUTE[k]].sort()).toEqual([...TYPES_INDEX[k]].sort());
+  });
+
+  it("hiring_channel is a DIFFERENT axis from application_channel — no shared vocabulary implies they're the same question", () => {
+    // application_channel answers HOW the candidate applied; hiring_channel
+    // answers WHO the employing intermediary was. If these ever accidentally
+    // converged to the same value set it would be a strong signal someone
+    // conflated the two axes into one.
+    const applicationChannelValues = ["referral", "recruiter_outreach", "job_board", "company_website", "other"];
+    expect(ROUTE.hiring_channel.sort()).not.toEqual([...applicationChannelValues].sort());
+  });
+
+  it("consultancy and recruitment agency are deliberately ONE value, not two — the UI wording can't distinguish them", () => {
+    expect(ROUTE.hiring_channel).toContain("consultancy_agency");
+    expect(ROUTE.hiring_channel).not.toContain("consultancy");
+    expect(ROUTE.hiring_channel).not.toContain("recruitment_agency");
+  });
+
+  it("payment_requested_by has no separate 'no' value — payment_flag remains the sole 'did it happen' signal", () => {
+    // This enum is attribution-only. A "did it happen" value here would
+    // create two disagreeing sources of truth for the same boolean fact.
+    expect(ROUTE.payment_requested_by).not.toContain("no");
+    expect(ROUTE.payment_requested_by).not.toContain("none");
+  });
+
+  it("every field is optional — absence is valid, only a present-unknown value errors", () => {
+    for (const raw of [undefined, null, ""]) {
+      expect(raw === undefined || raw === null || raw === "").toBe(true);
+    }
+  });
+
+  it("does not encode a legal verdict as an enum value, and no accusation string is renderable", () => {
+    // Mirrors the 0033 guard: these fields record what happened, never a
+    // verdict, and never an accusation like "consultancies charge candidates"
+    // (Task 1's own explicit non-negotiable).
+    const forbidden = [
+      "illegal", "unlawful", "lawful", "violation", "compliant", "noncompliant",
+      "scam", "fraud", "charges_candidates", "bribe",
+    ];
+    const allValues = [...ROUTE.hiring_channel, ...ROUTE.payment_requested_by];
+    for (const term of forbidden) {
+      expect(allValues.includes(term)).toBe(false);
+    }
+  });
+
+  it("prefer_not_to_say is NOT an enum value on either field — it maps to null, like every optional field on this table", () => {
+    expect(ROUTE.hiring_channel).not.toContain("prefer_not_to_say");
+    expect(ROUTE.payment_requested_by).not.toContain("prefer_not_to_say");
+  });
+});

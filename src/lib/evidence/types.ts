@@ -41,6 +41,8 @@ import type {
   OutreachQuality,
   SensitiveInfoRequested,
   SensitiveInfoStage,
+  HiringChannel,
+  PaymentRequestedBy,
 } from "@/types/index";
 
 export type EvidenceFamily = "first_party" | "external";
@@ -140,6 +142,18 @@ export interface EvidenceItem {
   sensitiveInfoStage: SensitiveInfoStage | null;
   sensitiveInfoPurposeExplained: boolean | null;
   sensitiveInfoNecessaryPerceived: boolean | null;
+
+  /**
+   * Hiring channel + payment attribution (migration 0037). FIRST-PARTY ONLY,
+   * same asymmetry as every field above: external_reports has no equivalent
+   * columns. Not the same axis as applicationChannel — see HiringChannel's
+   * own doc comment in @/types/index. The basis of the two new cohort axes
+   * in evidence/cohort.ts.
+   */
+  hiringChannel: HiringChannel | null;
+  /** Attribution only; paymentFlag above remains the sole "did it happen"
+   *  signal and is untouched by this field. */
+  paymentRequestedBy: PaymentRequestedBy | null;
 }
 
 /**
