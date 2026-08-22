@@ -1,8 +1,48 @@
 # NOW — CandidateVoice project state
 
-**Last updated:** 2026-08-22, 9th pass (product-experience audit Phases 1–5, D-032 — pushed, migrations 0034/0035 applied, live QA-verified. Read this section first, in full, before touching code.)
+**Last updated:** 2026-08-22, 10th pass (realistic seed dataset, D-033 — read this section first, in full, before touching code).
 
-## This pass: product-experience audit Phases 1–5 — pseudonym, saved companies, segmentation, culture themes, radar/location viz (D-032)
+## This pass: realistic seed dataset for development/staging (D-033)
+
+`scripts/seed-realistic-dataset.ts` — run live (`--confirm`), verified on the
+live company pages. Full reasoning in D-033; summary here:
+
+- **12 clearly-fictional demo organizations** (never a real employer's name,
+  for the reason below), each tuned to a specific confidence-gate scenario:
+  zero evidence, below-floor (2 rows), mostly-pending moderation queue
+  (1 approved/9 pending), strong corroborated, conflicting/payment-risk,
+  employee-heavy with culture themes, verification-tier variance.
+- **95 `hiring_submissions`** via the real `submit_hiring_report` RPC (86
+  approved, 9 pending), **19 culture-theme selections**, **4 new
+  `company_requests`** (promotable / duplicate / mergeable / promotable),
+  **18 `external_reports`** on the permanently-`enabled=false` `demo`
+  source, **3 new `external_acquisition_runs`**.
+- **Why first-party rows use fictional names but `demo-seed.ts`'s external
+  reports use real ones**: external reports on the `demo` source are
+  structurally blocked from ever going public (`enabled=false` forever) —
+  first-party `hiring_submissions` has no equivalent kill-switch, so the
+  safe design is fictional company names, by construction, not a flag.
+- **Idempotent** for organizations/company_requests/external_reports
+  (natural-key existence check before insert, confirmed live via a second
+  dry-run reporting "0 created, 12 already existed"). **Not idempotent for
+  `hiring_submissions`** by design (no natural key, immutable once written,
+  documented in the script header) — do not re-run with `--confirm` without
+  reading that note first, or evidence counts will double and the carefully-
+  tuned floor/below-floor scenarios will shift.
+- **Verified live** on the dev server: Verdant Softworks renders a real HQS;
+  Solstice Manufacturing (2 rows) correctly shows insufficient-evidence, not
+  a fabricated score; Kestrel Consulting Group (0 rows) shows the standard
+  empty state; Meridian Media Networks renders both the culture-theme cloud
+  and the "would recommend" panel. A genuine dev-server 500 was hit and
+  fixed mid-verification — stale `.next/` build artifacts from an earlier
+  `npm run build` while `next dev` was still running, unrelated to the seed
+  data or any application code; fixed by clearing `.next/` and restarting.
+
+---
+
+**Previous pass — 2026-08-22, 9th pass** (product-experience audit Phases 1–5, D-032).
+
+## Prior pass: product-experience audit Phases 1–5 — pseudonym, saved companies, segmentation, culture themes, radar/location viz (D-032)
 
 Implements the full gap-matrix audit's implementation sequence: an anonymous
 persistent pseudonym, saved companies, an employee/candidate segmentation

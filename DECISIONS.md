@@ -1476,6 +1476,68 @@ Phase 1 above).
 
 ---
 
+## D-033 · Realistic seed dataset for development/staging
+
+New `scripts/seed-realistic-dataset.ts` populates 12 clearly-fictional demo
+organizations spanning the requested archetypes (large enterprise, mid-
+market, startup, fintech, consulting, media, manufacturing, financial
+services), each tuned to exercise a specific confidence-gate scenario:
+zero evidence (Kestrel Consulting Group), below the effectiveN floor
+(Solstice Manufacturing, 2 rows), mostly-pending moderation queue
+(Bridgeview Consulting India, 1 approved/9 pending), strong corroborated
+evidence (Verdant Softworks/Presidio Cloud Systems), genuinely conflicting
+outcomes exercising the payment-risk corroboration gate (Aarohi Fintech
+Labs, Orchid Financial Services), employee/former-employee-heavy with
+culture themes (Meridian Media Networks), and verification-tier metadata
+variance (Copper Peak Manufacturing).
+
+**The one design call that differs from `scripts/demo-seed.ts`'s existing
+precedent, and why:** `demo-seed.ts` generates *external* reports against
+REAL company names, which is safe because every demo-sourced external
+report is structurally blocked from public view (`external_sources.enabled
+= false` PERMANENTLY, migration `demo_external_source`) regardless of
+moderation outcome. First-party `hiring_submissions` has no equivalent
+kill-switch — an approved row is simply public. So this script never
+attaches first-party evidence to a real employer; every organization it
+creates is a clearly fictional name. External reports it does generate
+reuse the same `demo` source and the exact canonical content-hashing
+algorithm `src/lib/hiring-intel/normalize.ts` uses (replicated inline,
+deliberately not imported, to stay independent of in-flight collaborator
+changes to `hiring-intel/{store,types}.ts`), so re-running is a true no-op
+for that data, not a duplicate.
+
+Written through the REAL `submit_hiring_report` RPC (same triggers, same
+immutability guard) for every first-party row — never a raw table insert.
+`company_requests` seeded in the four states asked for (promotable,
+duplicate — colliding on slug with a seeded org, mergeable — a spelling
+variant of a real existing organization, and a second clean promotable
+one); resolving them (promote/merge/reject) is left to a human working the
+admin queue, not auto-resolved by the seed script.
+
+**Verified live:** dry-run confirmed idempotent organization detection
+before any write; a live `--confirm` run produced 12 orgs / 95
+`hiring_submissions` (86 approved, 9 pending) / 4 `company_requests` / 18
+`external_reports` on the permanently-disabled `demo` source / 3
+`external_acquisition_runs`. Confirmed on the live company pages: Verdant
+Softworks renders a Hiring Quality Score; Solstice Manufacturing (2 rows)
+correctly shows the insufficient-evidence state, never a fabricated score;
+Kestrel Consulting Group (0 rows) shows the standard empty state; Meridian
+Media Networks renders both the culture-theme cloud and the "would
+recommend" panel from its seeded employee/former-employee rows. A second
+dry-run after the live run correctly reported all 12 organizations as
+already existing (0 created) — idempotency confirmed against real state, not
+assumed from reading the code.
+
+**Explicitly not built:** running the seed data through the actual
+`runExternalImport`/`runAcquisition` pipeline functions (avoided
+deliberately — those modules currently have in-flight collaborator changes
+to their type surface, and importing them would make this script's
+correctness depend on someone else's uncommitted work; the script writes to
+the same tables those functions write to, matching their exact committed
+schema and hashing convention instead).
+
+---
+
 ## Open questions (decisions *not* yet made)
 
 | # | Question | Blocked on |
