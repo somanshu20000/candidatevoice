@@ -1,0 +1,86 @@
+<!doctype html>
+<!--
+  DETERMINISTIC TEST FIXTURE (Task 3 req 11) — a fictional hiring-review
+  listing page. NOT a copy of any real platform's markup; the companies are
+  the fictional demo orgs from seed-realistic-dataset.ts (D-033). Exists so
+  generic/parser.ts + generic/extract.ts can be tested with ZERO network
+  access. Deliberately includes edge cases: a clean card, a card missing
+  the company (partial), a card with only a company and no dimensions
+  (no-evidence drop), a card with an unmappable outcome value, and a
+  byte-for-byte duplicate of the clean card (in-batch dedup).
+-->
+<html lang="en">
+<head><title>Fictional Reviews — demo fixture</title></head>
+<body>
+  <main>
+    <ul class="reviews">
+      <!-- 1. clean, fully-populated card -->
+      <li class="review-card" data-review-id="rv-1001">
+        <span class="company">Verdant Softworks</span>
+        <span class="role">Software Engineer</span>
+        <span class="stage">Technical round</span>
+        <span class="outcome">Rejected</span>
+        <span class="experience">3-5</span>
+        <span class="response-time">4-7</span>
+        <span class="last-gap">8-14</span>
+        <span class="reason">skill_mismatch</span>
+        <span class="reported-date">2026-05-14</span>
+      </li>
+
+      <!-- 2. missing company -> partial, dropped -->
+      <li class="review-card" data-review-id="rv-1002">
+        <span class="role">Product Manager</span>
+        <span class="outcome">Offer</span>
+        <span class="experience">5-8</span>
+      </li>
+
+      <!-- 3. company only, no dimensions -> dropped (not evidence) -->
+      <li class="review-card" data-review-id="rv-1003">
+        <span class="company">Presidio Cloud Systems</span>
+      </li>
+
+      <!-- 4. mappable via human phrasing (never heard back -> no_response) -->
+      <li class="review-card" data-review-id="rv-1004">
+        <span class="company">Aarohi Fintech Labs</span>
+        <span class="role">Data Analyst</span>
+        <span class="stage">Recruiter call</span>
+        <span class="outcome">Never heard back</span>
+        <span class="experience">1-3</span>
+        <span class="last-gap">30+</span>
+        <span class="reported-date">March 2026</span>
+      </li>
+
+      <!-- 5. unmappable outcome -> that field dropped, but other dims keep it -->
+      <li class="review-card" data-review-id="rv-1005">
+        <span class="company">Presidio Cloud Systems</span>
+        <span class="role">DevOps Engineer</span>
+        <span class="stage">Final onsite</span>
+        <span class="outcome">¯\_(ツ)_/¯ unclear</span>
+        <span class="experience">8+</span>
+      </li>
+
+      <!-- 6. exact duplicate of card 1's content -> in-batch dedup -->
+      <li class="review-card" data-review-id="rv-1006">
+        <span class="company">Verdant Softworks</span>
+        <span class="role">Software Engineer</span>
+        <span class="stage">Technical round</span>
+        <span class="outcome">Rejected</span>
+        <span class="experience">3-5</span>
+        <span class="response-time">4-7</span>
+        <span class="last-gap">8-14</span>
+        <span class="reason">skill_mismatch</span>
+        <span class="reported-date">2026-05-14</span>
+      </li>
+
+      <!-- 7. messy-but-well-formed: uppercase tags, &nbsp;, stray whitespace,
+              uppercased outcome -> must normalize to a clean 7th record -->
+      <LI class="review-card" data-review-id="rv-1007">
+        <SPAN class="company">   Meridian&nbsp;Media   Networks   </SPAN>
+        <span class="role">UX Designer</span>
+        <span class="outcome">OFFER</span>
+        <span class="experience">1-3</span>
+      </LI>
+    </ul>
+  </main>
+</body>
+</html>

@@ -1,6 +1,64 @@
 # NOW — CandidateVoice project state
 
-**Last updated:** 2026-08-22, 11th pass (browser/Playwright acquisition layer, D-034 — read this section first, in full, before touching code).
+**Last updated:** 2026-08-22, 12th pass (hardened generic acquisition pipeline, D-035 — read this section first, in full, before touching code).
+
+## This pass: hardened generic acquisition pipeline — fetcher/parser/extractor (D-035)
+
+Extends D-034's browser layer into a full source-agnostic pipeline. Full
+reasoning in D-035; operational summary here.
+
+**Declined-as-written, then user chose the safe path.** The request said
+"assume Q-2 is cleared" and build a Playwright+**BeautifulSoup** scraper for
+`[TARGET PLATFORM]` (an unfilled placeholder). Declined: the realistic
+candidates (LinkedIn/Glassdoor/AmbitionBox) are D-005/no-redistribution
+forbidden; I can't self-certify a legal clearance; BeautifulSoup=Python
+would be a parallel stack. Asked via AskUserQuestion → user chose **"harden
+generic pipeline, no live site."** So this targets only example.com + a
+committed fixture, ready to point at a human-named+cleared source later.
+
+**Three-way separation, all TypeScript** (`src/lib/external-intel/generic/`):
+- `fetcher.ts` — Playwright only; pagination/infinite-scroll with
+  deterministic termination, inter-page rate limiting, retries+backoff,
+  timeouts. Builds on `browser-fetch.ts` (no stealth/evasion).
+- `parser.ts` — the BeautifulSoup role via `node-html-parser`; HTML string →
+  raw-string records; tolerant of malformed HTML, normalizes whitespace,
+  flags company-less cards `partial`. No browser/network/evidence knowledge.
+- `extract.ts` — maps parsed strings → `RawExternalReport` (existing
+  dimensions only, never invents); canonical content hash identical to
+  `normalize.ts`; drops partial/no-dimension, dedups in-batch, full provenance.
+
+**Idempotency**: `content_hash` has NO unique constraint (checked
+`information_schema`) → enforced app-side, same as importer/D-033/D-034.
+
+**Acceptance — `npx tsx scripts/generic-acquire-demo.ts --company "Verdant
+Softworks"`, run twice, live vs production `demo` source:**
+- Run 1: real Chromium fetch of example.com (rawHash `7b6cd9a1…`, 0 cards on
+  the live page — correct); fixture parsed (7 cards) → extracted 4 (1
+  partial + 1 no-dimension + 1 dup dropped) → 4 `external_reports` written
+  `pending`, ids `923e069c/fa7567f5/24a84084/c3fb6d74`.
+- Run 2: **0 created, 4 duplicate** (content-hash idempotency).
+- SQL-verified: `total_generic=4, pending=4, demo_visible_publicly=0`.
+
+**Two real bugs the tests caught**: a TZ month-coarsening bug
+(`"March 2026"→"2026-02"` in IST) and missing whitespace normalization —
+both fixed in the engine, not by adjusting assertions.
+
+**Verified:** tsc clean, 866 tests (15 new), build clean. `node-html-parser`
+added devDependency-only, isolated single-line `package.json` diff (collaborator
+WIP untouched). PixelRAG compatible-by-design, not invoked (demo target needs
+no visual render). No npm script alias added (scripts block has collaborator
+WIP) — run via `npx tsx scripts/generic-acquire-demo.ts`.
+
+**Cross-task status this session:** Task 1 (culture themes, D-032) already
+complete. Task 2 (real permitted source end-to-end) is Reddit, **blocked on a
+real `REDDIT_CLIENT_ID`/`SECRET`** — re-confirmed 401 via live OAuth this
+pass; human-owned credential gate, PixelRAG N/A for Reddit (JSON API).
+
+---
+
+**Previous pass — 2026-08-22, 11th pass** (browser/Playwright acquisition layer, D-034).
+
+## Prior pass: browser (Playwright) acquisition layer (D-034)
 
 ## This pass: browser (Playwright) acquisition layer (D-034)
 

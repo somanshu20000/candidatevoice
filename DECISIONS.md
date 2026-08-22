@@ -1626,6 +1626,103 @@ Q-2, not effort, as stated above).
 
 ---
 
+## D-035 · Hardened generic acquisition pipeline (fetcher / parser / extractor)
+
+Extends D-034's browser layer into a full, source-agnostic, three-part
+pipeline with the production concerns a real listing source needs. The user
+was offered a real named target under an asserted Q-2 clearance and
+**explicitly chose the "harden generic pipeline, no live site" path**, so
+this deliberately targets only the safe demo surface (example.com +
+committed fixture), ready to point at a source a human later names and whose
+clearance they own.
+
+**What was declined, and why (the request as originally phrased):** the task
+asked to "assume the Q-2 gate has been cleared" and build a Playwright +
+**BeautifulSoup** scraper for `[TARGET PLATFORM]`. Declined as written:
+`[TARGET PLATFORM]` was an unfilled placeholder; the realistic candidates
+(LinkedIn/Glassdoor/AmbitionBox) are forbidden by D-005 + their recorded
+no-redistribution licenses regardless of any internal "staging" label; a
+legal/ToS clearance is a human determination I cannot self-certify or
+manufacture by assumption (and the same user, one turn earlier, had
+explicitly instructed "respect… licensing, and the project's Q-2
+source-permission gate"); and BeautifulSoup is Python — adding a parallel
+Python scraping stack contradicts the standing "no parallel data
+architecture" rule. The HTML-parsing role BeautifulSoup would fill is done
+in TypeScript instead (`node-html-parser`), keeping one stack.
+
+**Strict three-way separation (Task req 6), all TypeScript:**
+- `src/lib/external-intel/generic/fetcher.ts` — Playwright ONLY. Builds on
+  `browser-fetch.ts` (real headless Chromium, robots.txt gate, no
+  stealth/evasion) and adds pagination/infinite-scroll with deterministic
+  TERMINATION (max-pages backstop + already-seen-URL guard so a non-
+  advancing next-link ends the loop), inter-page rate limiting, per-page
+  retries with backoff on transient failure (robots errors never retried),
+  and timeouts.
+- `generic/parser.ts` — the BeautifulSoup role in TS via `node-html-parser`.
+  Takes an HTML STRING + a selector spec, returns structured raw-string
+  records. No browser, no network, no evidence-model knowledge — which is
+  exactly what makes it unit-testable against a static fixture. Tolerant of
+  malformed HTML; normalizes whitespace/entities; a company-less card is
+  returned `partial`, never dropped silently.
+- `generic/extract.ts` — maps parsed strings onto the EXISTING evidence
+  contract (`RawExternalReport`). Only existing dimensions (never invents a
+  metric — an unmappable value is dropped for that field). Canonical
+  content hash byte-identical to `hiring-intel/normalize.ts` (replicated
+  inline, same self-containment reason as D-033/D-034). Drops partials and
+  no-dimension records; dedups within a batch by content_hash; stamps full
+  provenance (acquired_at, extraction_method, extractor_version,
+  raw-HTML hash, source_url, external_ref).
+
+**Two real bugs the tests caught (not assertion-fudged):** (1) a timezone
+coarsening bug — `Date.parse("March 2026")` parsed as local midnight then
+read via `getUTCMonth()` produced "2026-02" in IST; fixed with explicit
+month-name mapping, no `Date.parse`. (2) missing whitespace normalization —
+a card with `&nbsp;`/stray spaces/uppercase tags produced an unmatchable
+company name; fixed by collapsing whitespace in the parser. Both surfaced
+only by running the fixture-driven tests, and the messy card now round-trips
+end to end (Meridian Media Networks landed correctly from the fixture's
+deliberately-messy card 7).
+
+**Idempotency (Task reqs 9, 14):** `information_schema` confirmed
+`external_reports.content_hash` has NO unique constraint, so idempotency is
+enforced application-side (check-then-insert by content_hash), the same
+pattern the real importer, D-033's seed script, and D-034 all use.
+
+**Acceptance evidence — `npx tsx scripts/generic-acquire-demo.ts --company
+"Verdant Softworks"`, run twice, live against production's `demo` source:**
+- Run 1: real Chromium fetch of example.com (559 bytes, rawHash
+  `7b6cd9a1…`, 0 review cards found on the live page — correct, it's not a
+  review page); fixture parsed (7 cards); extracted 4 (dropped 1 partial,
+  1 no-dimension, 1 in-batch dup); wrote 4 `external_reports` rows,
+  `verification_status='pending'`, ids `923e069c…`/`fa7567f5…`/`24a84084…`/
+  `c3fb6d74…`; `external_acquisition_runs` row `status='awaiting_moderation'`.
+- Run 2: identical content hashes → **0 created, 4 duplicate skipped.**
+- SQL-verified independently: `total_generic=4, pending_generic=4,
+  demo_visible_publicly=0` — exactly 4 rows, all pending, none public
+  (the `demo` source's permanent `enabled=false` blocks publication
+  regardless of moderation state).
+
+**Tests:** `tests/generic-parser.test.ts` + `tests/generic-extract.test.ts`
+(15 new) against `tests/fixtures/generic-review-page.html` (deterministic,
+network-free — Task req 11). Full suite 866 green (was 851); tsc + build
+clean. `node-html-parser` added devDependency-only (never in the app
+bundle), committed as an isolated single-line `package.json` diff to avoid
+entangling the pre-existing uncommitted collaborator changes in that file.
+
+**PixelRAG (Task req 17):** compatible-by-design but not invoked — the demo
+target renders fine as plain DOM, so there's no visual-render step to route
+through PixelRAG. The existing `extract.ts` PixelRAG Case-1 path is
+untouched and remains the seam for a future source that genuinely needs
+visual rendering.
+
+**Explicitly not done:** no npm `acquire:generic-demo` alias added to
+`package.json`'s scripts block (it carries uncommitted collaborator WIP;
+the command is run via `npx tsx` and documented in NOW.md instead); no
+wiring into `orchestrator.ts` (in-flight collaborator types); no real
+third-party site targeted (the user chose the no-live-site path).
+
+---
+
 ## Open questions (decisions *not* yet made)
 
 | # | Question | Blocked on |
