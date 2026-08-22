@@ -49,6 +49,7 @@ import { computeHqs, HQS_WEIGHTS, HQS_MIN_EFFECTIVE_N } from "@/utils/hqs";
 import type { HqsResult, HqsTier } from "@/utils/hqs";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import PresenceCompanyScope from "@/components/presence/PresenceCompanyScope";
 import CompanyOverview, { CompanyActions } from "@/components/CompanyOverview";
 import ProfileEnrichment from "@/components/ProfileEnrichment";
 import Bar from "@/components/charts/Bar";
@@ -954,6 +955,7 @@ export default async function CompanyPage({ params, searchParams }: Props) {
   if (rawTotal === 0) {
     return (
       <div className="min-h-screen flex flex-col">
+        <PresenceCompanyScope slug={companySlug} />
         <Navbar />
         <main className="max-w-4xl mx-auto px-4 py-14 w-full flex-1">
           <div className="mb-8 pb-8 border-b border-rule">
@@ -1066,6 +1068,7 @@ export default async function CompanyPage({ params, searchParams }: Props) {
 
   return (
     <div className="min-h-screen flex flex-col">
+      <PresenceCompanyScope slug={companySlug} />
       <Navbar />
       <main className="max-w-4xl mx-auto px-4 py-14 w-full flex-1">
 

@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/acquire-external",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/presence-cleanup",
+      "schedule": "0 4 * * *"
     }
   ]
 }

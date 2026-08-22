@@ -1723,6 +1723,98 @@ third-party site targeted (the user chose the no-live-site path).
 
 ---
 
+## D-036 · Live presence counters (site-wide + per-company active-viewer counts)
+
+Social proof — "127 people are exploring CandidateVoice" / "143 people are
+viewing this company" — a deliberately tiny, structurally disjoint subsystem:
+not evidence, not identity, not moderation, not ranking. It answers exactly
+one question ("is anyone here right now") and nothing it stores can ever
+touch HQS, the fingerprint, search ranking, or any other truth-layer number.
+
+**Architecture — Postgres, not Redis.** Same reasoning `rate-limit.ts`
+already established for the identical shape of problem (a short-TTL counter
+under concurrent writes): actual traffic doesn't justify a new vendor,
+credential, and failure domain. One table (`presence_sessions`, one row per
+browser tab, upserted not appended) + two functions: `presence_heartbeat`
+(atomic `ON CONFLICT` upsert, same primitive `rate_limit_increment` uses
+under identical concurrency pressure) and `presence_counts` (both figures in
+one round trip). Revisit Redis only if `rate-limit.ts`'s own documented
+triggers are ever met.
+
+**"Active" = a heartbeat within the last 120 seconds** (`presence_counts`'s
+`p_window_seconds` default). A client sends a heartbeat roughly every 55s
+(`PresenceProvider.tsx`), so a tab that's genuinely open never falls outside
+a 120s window even accounting for jitter; a tab that's closed or backgrounded
+ages out within ~2x its own heartbeat interval. A separate daily cron
+(`/api/cron/presence-cleanup`, mirroring the existing `acquire-external`
+cron's `CRON_SECRET` pattern) hard-deletes rows older than 600s so the table
+never grows from abandoned tabs that never send a clean goodbye (browsers
+don't reliably fire one).
+
+**>100 threshold, strictly greater-than.** Below 100 the count is either
+absent (no social proof) or, worse, makes the site look empty — the product
+requirement was explicit that no count ever renders below the threshold, and
+exactly-100 does not show (`shouldShowPresence` is `count > 100`, not `>=`).
+
+**Privacy — no identity, ever.** `session_id` is a client-generated random
+UUID, regenerated per tab, never persisted to storage/cookie, never written
+to or read from the `cv_candidate` identity (0015) — a presence session and
+a candidate identity share no column, no join path, nothing. No email, IP,
+user-agent, or exact per-session timestamp is ever collected or exposed; the
+only value that ever reaches a client is a coarse, thresholded count. Bot/
+health-check/cron traffic is excluded before any DB write (`isLikelyBot`,
+`src/lib/presence/bot-detection.ts`) and the endpoint is rate-limited per IP
+(reusing the existing `rate-limit.ts` primitive) — a spoofed count is
+structurally impossible since the client never submits one; the response is
+computed entirely server-side from the real row count.
+
+**Double-counting avoided by construction.** A single shared `session_id`
+and heartbeat interval (`PresenceProvider`, mounted once at the root layout)
+is reused across the whole session; `PresenceCompanyScope` re-scopes that
+*same* session's `organization_id` on a company page rather than minting a
+second session — otherwise a company-page visit would count toward both the
+global and the company figure as two independent sessions.
+
+**`account-evidence-disjointness.test.ts` interaction:** `session_id` is
+(deliberately) on that test's `FORBIDDEN_IDENTITY_COLUMNS` blanket scan,
+since a session id on an *evidence* table would be a correlation key. Rather
+than rename the column to dodge the substring match, `0036_live_presence.sql`
+was added to `IDENTITY_MIGRATIONS` — the same treatment 0004/0015/0034 get —
+with its own positive assertion block proving it references no evidence
+table, no candidate table, and no account table. This is architecturally the
+same category of exemption as those three: an identity-bearing table that is
+legitimately disjoint from evidence, not evidence itself.
+
+**Files:** `supabase/migrations/0036_live_presence.sql`;
+`src/lib/presence/{threshold,bot-detection,store}.ts`;
+`src/app/api/presence/heartbeat/route.ts`;
+`src/app/api/cron/presence-cleanup/route.ts`; `vercel.json` (new cron entry);
+`src/components/presence/{PresenceProvider,PresenceBadge,PresenceCompanyScope}.tsx`;
+`src/app/layout.tsx` / `src/app/company/[slug]/page.tsx` (wiring); five new
+test files (`tests/presence-{threshold,bot-detection,migration,store,
+heartbeat-route}.test.ts`, 57 tests).
+
+**Verification:** full suite 925/925 green (was 918 pre-fix — one
+pre-existing test, `account-evidence-disjointness.test.ts:228`, initially
+failed on the `session_id` substring collision described above; fixed by the
+`IDENTITY_MIGRATIONS` exemption, not a rename). `tsc --noEmit` clean.
+`npm run build` clean (39/39 pages, all new routes present). Verified live
+against a local `npm start` production build: `/api/presence/heartbeat`
+returns 200 and fails open/hidden (`show_global:false`) pre-migration, as
+designed — a missing RPC is a graceful-failure case, not a 500.
+
+**Not yet done:** migration `0036` is written and structurally tested but
+**not yet applied to the production database** — the Supabase MCP
+`apply_migration` call was blocked by the environment's permission
+classifier as an irreversible production-schema change. This is the correct
+stopping point per the task's own instruction ("only stop for a genuine
+irreversible production-data/security gate"); a human needs to either apply
+it via the Supabase dashboard/CLI, or explicitly authorize the MCP call.
+Until applied, the feature fails open silently in production exactly as it
+does locally (hidden badge, no errors) — safe, but inert.
+
+---
+
 ## Open questions (decisions *not* yet made)
 
 | # | Question | Blocked on |

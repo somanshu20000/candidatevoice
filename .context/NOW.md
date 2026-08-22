@@ -1,8 +1,73 @@
 # NOW — CandidateVoice project state
 
-**Last updated:** 2026-08-22, 12th pass (hardened generic acquisition pipeline, D-035 — read this section first, in full, before touching code).
+**Last updated:** 2026-08-22, 13th pass (live presence counters, D-036 — read this section first, in full, before touching code).
 
-## This pass: hardened generic acquisition pipeline — fetcher/parser/extractor (D-035)
+## This pass: live presence counters — site-wide + per-company active-viewer counts (D-036)
+
+Full spec: global "127 people are exploring CandidateVoice" + per-company
+"143 people are viewing this company", >100 threshold (strict `>`, never
+shows at exactly 100), ~60s refresh, no fake counts, graceful failure = hide
+not error. Full architecture reasoning in D-036; operational summary here.
+
+**Architecture — Postgres, not Redis** (same reasoning as `rate-limit.ts`):
+one table `presence_sessions` (one row per browser tab, upserted on every
+heartbeat, never appended) + two functions, `presence_heartbeat` (atomic
+`ON CONFLICT` upsert) and `presence_counts` (global+company in one round
+trip). "Active" = `last_seen_at` within 120s; client heartbeats every 55s
+(`PresenceProvider.tsx`). Daily cron `/api/cron/presence-cleanup` hard-deletes
+rows older than 600s (mirrors the existing `acquire-external` cron's
+`CRON_SECRET` pattern) so the table never grows unbounded from abandoned tabs.
+
+**Privacy:** `session_id` is a client-generated random UUID, per-tab, never
+persisted, never shares identity with `cv_candidate` (0015). No email/IP/
+user-agent/exact-timestamp ever collected or exposed — only a coarse
+thresholded count reaches a client. Bot/health-check/cron traffic excluded
+pre-write (`isLikelyBot`); the endpoint is IP-rate-limited (existing
+`rate-limit.ts` primitive); a client can never submit its own count — the
+route only ever reads `session_id`/`company_slug` from the body.
+
+**Double-counting avoided by construction:** one shared session/heartbeat
+(`PresenceProvider`, mounted once at root layout) reused everywhere;
+`PresenceCompanyScope` re-scopes that *same* session's org on a company page
+rather than minting a second one.
+
+**A real pre-existing test caught a real naming collision:**
+`session_id` is (deliberately) on `account-evidence-disjointness.test.ts`'s
+`FORBIDDEN_IDENTITY_COLUMNS` blanket scan (a session id on an *evidence*
+table would be a correlation key). Fixed by adding `0036_live_presence.sql`
+to that test's `IDENTITY_MIGRATIONS` exemption list — the same treatment
+0004/0015/0034 already get — plus a new positive-assertion block proving
+0036 references no evidence/candidate/account table. Not a column rename:
+presence genuinely needs an identity-shaped `session_id`, same as those
+three migrations do on their own tables.
+
+**Verified:** full suite 925/925 green (was 918, the one failure above,
+fixed — not worked around). `tsc --noEmit` clean. `npm run build` clean,
+39/39 pages, all new routes present (`/api/presence/heartbeat`,
+`/api/cron/presence-cleanup`). Live-verified against a local `npm start`
+production build: heartbeat route returns 200 and fails open/hidden
+pre-migration (missing RPC → graceful hide, never a 500) — exactly the
+designed behavior.
+
+**BLOCKED — human action required:** migration `0036_live_presence.sql` is
+written and structurally tested but **NOT applied to the production
+database.** The Supabase MCP `apply_migration` call was blocked by this
+environment's permission classifier (a schema change to prod is correctly
+treated as irreversible/high-blast-radius). Until a human applies it (via
+Supabase dashboard/CLI, or explicitly re-authorizing the MCP call), the
+feature is inert-but-safe in production: the route fails open, badge never
+shows, zero errors, zero risk — it just doesn't do anything yet. This is the
+single remaining step before the feature is live.
+
+**Not yet done (secondary to the blocker above):** git commit/push of this
+pass's files, and Vercel deployment verification — both ready to go, held
+only behind confirming the commit scope excludes pre-existing collaborator
+WIP (`package.json`, `scripts/_shared.ts`, `src/lib/hiring-intel/*`, etc. —
+same discipline as every prior pass).
+
+---
+
+**Previous pass — 2026-08-22, 12th pass** (hardened generic acquisition pipeline, D-035).
 
 Extends D-034's browser layer into a full source-agnostic pipeline. Full
 reasoning in D-035; operational summary here.

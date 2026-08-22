@@ -67,14 +67,24 @@ const SAVED_COMPANIES_TABLES = ["candidate_saved_companies"];
 
 const SAVED_COMPANIES_MIGRATION = "0034_candidate_saved_companies.sql";
 
+const PRESENCE_TABLES = ["presence_sessions"];
+
+const PRESENCE_MIGRATION = "0036_live_presence.sql";
+
 /**
  * Migrations that legitimately carry an identity column (an account's
- * `user_id`, a candidate's `candidate_id`) yet must remain structurally
- * disjoint from evidence. Each is exempted from the blanket identity-column
- * scan below AND positively asserted here to reference no evidence table —
- * the same guarantee, split across two checks (see 0004 / 0015 / 0034 headers).
+ * `user_id`, a candidate's `candidate_id`, a presence row's `session_id`) yet
+ * must remain structurally disjoint from evidence. Each is exempted from the
+ * blanket identity-column scan below AND positively asserted here to
+ * reference no evidence table — the same guarantee, split across two checks
+ * (see 0004 / 0015 / 0034 / 0036 headers).
  */
-const IDENTITY_MIGRATIONS = [ACCOUNT_MIGRATION, CANDIDATE_MIGRATION, SAVED_COMPANIES_MIGRATION];
+const IDENTITY_MIGRATIONS = [
+  ACCOUNT_MIGRATION,
+  CANDIDATE_MIGRATION,
+  SAVED_COMPANIES_MIGRATION,
+  PRESENCE_MIGRATION,
+];
 
 describe("account migration never references evidence", () => {
   const sql = executableSql(ACCOUNT_MIGRATION);
@@ -186,6 +196,59 @@ describe("saved companies migration never references evidence (Phase 2, product-
 
   it("enables RLS with no policy (service-role only), mirroring candidate_preferences exactly", () => {
     for (const table of SAVED_COMPANIES_TABLES) {
+      expect(sql).toContain(`alter table ${table} enable row level security`);
+    }
+    const policies = sql.match(/create policy/g) ?? [];
+    expect(policies).toHaveLength(0);
+  });
+});
+
+describe("live presence migration never references evidence", () => {
+  // presence_sessions.session_id is an ephemeral, anonymous browser-tab
+  // identity — never persisted client-side, never shared with cv_candidate,
+  // regenerated every page load. It IS an identity-shaped column (that's why
+  // it's on FORBIDDEN_IDENTITY_COLUMNS below), but presence has no reason to
+  // ever join to a submission, a candidate, or an account. Its disjointness
+  // is guaranteed the same way 0004/0015/0034's is: positively, here.
+  const sql = executableSql(PRESENCE_MIGRATION);
+
+  it.each(EVIDENCE_TABLES)(
+    "does not reference %s in executable SQL",
+    (table) => {
+      expect(
+        sql.includes(table),
+        `${PRESENCE_MIGRATION} references ${table}. A presence row must never ` +
+          `be joinable to a hiring report — an active-viewer count has nothing ` +
+          `to do with who filed what.`
+      ).toBe(false);
+    }
+  );
+
+  it("does not reference candidate_profiles, auth.users, or any account/candidate table", () => {
+    for (const table of [
+      "auth.users",
+      ...CANDIDATE_TABLES,
+      ...SAVED_COMPANIES_TABLES,
+      "profiles",
+      "wishlist_items",
+    ]) {
+      expect(
+        sql.includes(table),
+        `${PRESENCE_MIGRATION} references ${table}. Presence is a disjoint, ` +
+          `anonymous, ephemeral subsystem — it must not correlate with any ` +
+          `other identity graph.`
+      ).toBe(false);
+    }
+  });
+
+  it("declares its own table", () => {
+    for (const table of PRESENCE_TABLES) {
+      expect(sql).toContain(table);
+    }
+  });
+
+  it("enables RLS with no policy (service-role only)", () => {
+    for (const table of PRESENCE_TABLES) {
       expect(sql).toContain(`alter table ${table} enable row level security`);
     }
     const policies = sql.match(/create policy/g) ?? [];

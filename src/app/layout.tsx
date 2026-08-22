@@ -2,6 +2,8 @@ import { Inter, EB_Garamond } from "next/font/google";
 import "./globals.css";
 import React from "react";
 import type { Metadata } from "next";
+import PresenceProvider from "@/components/presence/PresenceProvider";
+import PresenceBadge from "@/components/presence/PresenceBadge";
 
 // Both fonts are downloaded and self-hosted by next/font at build time, so they
 // satisfy the `font-src 'self'` CSP in next.config.js — no external origin.
@@ -30,7 +32,12 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={`${inter.variable} ${garamond.variable}`}>
-      <body className="font-sans antialiased">{children}</body>
+      <body className="font-sans antialiased">
+        <PresenceProvider>
+          {children}
+          <PresenceBadge />
+        </PresenceProvider>
+      </body>
     </html>
   );
 }
