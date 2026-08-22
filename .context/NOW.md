@@ -1,8 +1,73 @@
 # NOW — CandidateVoice project state
 
-**Last updated:** 2026-08-21, 8th pass (Recruitment Process Intelligence, D-031, pushed + migration 0033 applied + live QA-verified — read this section first, in full, before touching code).
+**Last updated:** 2026-08-22, 9th pass (product-experience audit Phases 1–5, D-032 — pushed, migrations 0034/0035 applied, live QA-verified. Read this section first, in full, before touching code.)
 
-## This pass: Recruitment Process Intelligence — outreach quality & information-request behaviour (D-031)
+## This pass: product-experience audit Phases 1–5 — pseudonym, saved companies, segmentation, culture themes, radar/location viz (D-032)
+
+Implements the full gap-matrix audit's implementation sequence: an anonymous
+persistent pseudonym, saved companies, an employee/candidate segmentation
+toggle, a closed-enum culture theme cloud, and two new visualizations. See
+D-032 for full detail; this section is the operational summary.
+
+**Foundational call:** every new identity piece extends `candidate_profiles`/
+`cv_candidate` (0015, already live) — NOT the dormant `auth.users`-based
+`profiles`/`wishlist_items` (0004), which has zero application-code
+references and would require building real login.
+
+**Shipped, migrations `0034`+`0035` (APPLIED to production):**
+- `src/lib/candidate/pseudonym.ts` — deterministic, never-stored display name.
+  Shown on `/advisor` and `/saved`.
+- `candidate_saved_companies` (0034) + `/api/candidate/saved` +
+  `SaveButton.tsx` + `/saved` page. Live-verified via curl: mint → save →
+  idempotent → list → unsave → list-empty, all correct.
+- `CohortFilter` gained `reporterType` → "Report type" dropdown on the
+  company page. Live-verified: it scopes the "Compare to reports like you"
+  forecast only (same as the two existing cohort dimensions) — Culture/
+  Conduct/CultureTheme panels are already single-relationship-scoped
+  internally and correctly don't move; confirmed via the QA org rather than
+  assumed.
+- `culture_themes`/`submission_culture_themes` (0035, 14-tag closed
+  vocabulary) + `submit_hiring_report`'s new 4th param + `cultureThemes.ts`
+  (mirrors `likert.ts`'s `emotionShares()`) + `CultureThemePanel`
+  (frequency-sized tags, deliberately no good/bad coloring).
+- `Radar.tsx` (zero-dependency SVG, never fabricates a zero for missing
+  data) wired into `/compare`; `locationBreakdown()` (country-grouped,
+  reuses `Bar`) wired into `CompanyOverview.tsx` — no coordinates exist in
+  the schema, so this is a breakdown, not a pin-map.
+- `tests/account-evidence-disjointness.test.ts` extended for 0034 (new
+  describe block mirroring 0015's); new
+  `tests/culture-theme-taxonomy.test.ts` mirrors the emotions parity check.
+
+**Two real things found only by live-verifying, not by tests:**
+1. **A genuine production bug**: `create or replace function` doesn't retire
+   an old-signature overload — adding the 4th RPC param created a second
+   `submit_hiring_report`, leaving the 3-arg call form ambiguous
+   (`42725: function ... is not unique`). Hit on the very first live QA
+   call. Fixed with an explicit `drop function` before the redefinition, in
+   both production and the committed migration.
+2. **A UX gap caught by hand-computing expected output before checking the
+   page**: the first `CultureThemePanel` rendered all 14 themes including
+   the 7 nobody picked (a real `0%`, not suppressed). Filtered to `value > 0`
+   at render time — data was never wrong, just uninformatively cluttered.
+
+**Verified:** `npx tsc --noEmit` clean; `npx vitest run` — 851/851 pass (up
+from 822); `npm run build` clean, new routes `/saved`, `/api/candidate/saved`
+registered. Full live QA cycle against `m54-qa-verification-test`
+(id `b77ee3bd-f7f7-4e59-b67d-3eacf08c1597`): 8 candidate + employee +
+former_employee rows inserted via the real `submit_hiring_report` RPC,
+approved, culture-theme shares and segmentation confirmed correct on the
+live page, all rows rejected afterward (0 visible in `public_submissions`
+after cleanup — confirmed by query, not assumed). No real evidence touched.
+
+**Explicitly not built this pass:** cohort-scoped `CultureThemePanel`;
+a literal geographic pin-map (schema has no coordinates); editable/chosen
+pseudonyms (rejected on identity-leak grounds).
+
+---
+
+**Previous pass — 2026-08-21, 8th pass** (Recruitment Process Intelligence, D-031).
+
+## Prior pass: Recruitment Process Intelligence — outreach quality & information-request behaviour (D-031)
 
 New candidate-facing concept: CandidateVoice's original complaint was that
 candidates get recruiter outreach with no evidence anyone looked at their

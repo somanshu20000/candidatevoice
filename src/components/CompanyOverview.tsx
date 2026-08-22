@@ -1,7 +1,9 @@
 import Link from "next/link";
-import type { CompanyProfileView, CompanyTermView } from "@/lib/company-intelligence/read";
+import type { CompanyProfileView, CompanyTermView, CompanyLocationView } from "@/lib/company-intelligence/read";
 import type { LinkType } from "@/lib/company-intelligence/types";
 import ShareButton from "@/components/ShareButton";
+import SaveButton from "@/components/SaveButton";
+import Bar from "@/components/charts/Bar";
 
 /**
  * Renders imported company metadata. Deliberately framed as "Company facts"
@@ -47,6 +49,23 @@ function country(code: string): string {
 
 function locationLabel(l: { city: string; region: string | null; countryCode: string }): string {
   return [l.city, l.region, country(l.countryCode)].filter(Boolean).join(", ");
+}
+
+/**
+ * Group imported office locations by country (Phase 5, product-experience
+ * audit). No coordinates exist in this schema (NormalizedLocation only ever
+ * carries city/region/countryCode strings — see company-intelligence/types.ts),
+ * so a literal pin-map isn't buildable without a schema change; a country
+ * breakdown answers "where does this company hire" honestly with the data
+ * that's actually collected. Pure — no I/O, easy to unit test.
+ */
+export function locationBreakdown(locations: CompanyLocationView[]): { country: string; count: number; pct: number }[] {
+  if (locations.length === 0) return [];
+  const counts = new Map<string, number>();
+  for (const l of locations) counts.set(l.countryCode, (counts.get(l.countryCode) ?? 0) + 1);
+  return [...counts.entries()]
+    .map(([code, count]) => ({ country: country(code), count, pct: Math.round((count / locations.length) * 100) }))
+    .sort((a, b) => b.count - a.count);
 }
 
 function FactRow({ label, children }: { label: string; children: React.ReactNode }) {
@@ -163,6 +182,31 @@ export default function CompanyOverview({ profile }: { profile: CompanyProfileVi
           </div>
         </div>
 
+        {(() => {
+          const breakdown = locationBreakdown(profile.locations);
+          if (breakdown.length < 2) return null; // one country isn't a breakdown
+          return (
+            <div className="mt-5 pt-5 border-t border-rule">
+              <span className="text-xs font-mono uppercase tracking-wider text-ink-muted block mb-3">
+                Offices by country
+              </span>
+              <div className="space-y-2.5">
+                {breakdown.map((b) => (
+                  <div key={b.country}>
+                    <div className="flex items-baseline justify-between gap-3 mb-1">
+                      <span className="text-sm text-ink-soft">{b.country}</span>
+                      <span className="text-xs text-ink-faint tnum">
+                        {b.count} {b.count === 1 ? "office" : "offices"} · {b.pct}%
+                      </span>
+                    </div>
+                    <Bar value={b.pct} tone="neutral" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+
         {orderedLinks.length > 0 && (
           <div className="flex flex-wrap gap-2 mt-5 pt-5 border-t border-rule">
             {orderedLinks.map((link) => (
@@ -205,7 +249,17 @@ export default function CompanyOverview({ profile }: { profile: CompanyProfileVi
  * release rather than left greyed out. A dead control teaches a visitor the
  * product is unfinished, which costs more trust than the missing feature does.
  */
-export function CompanyActions({ slug }: { slug: string }) {
+export function CompanyActions({
+  slug,
+  organizationId,
+  initialSaved,
+}: {
+  slug: string;
+  /** Present once the company has resolved to a real organization row — a
+   *  slug typed into the URL that doesn't resolve has nothing to save. */
+  organizationId?: string;
+  initialSaved?: boolean;
+}) {
   const displayName = slug.replace(/-/g, " ");
   return (
     <div className="flex flex-wrap gap-2.5 mb-8">
@@ -220,6 +274,7 @@ export function CompanyActions({ slug }: { slug: string }) {
         title={`Hiring reports for ${displayName} — CandidateVoice`}
         label="Share this page"
       />
+      {organizationId && <SaveButton organizationId={organizationId} initialSaved={initialSaved ?? false} />}
     </div>
   );
 }

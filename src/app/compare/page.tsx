@@ -9,11 +9,15 @@ import type { FitResult } from "@/lib/advisor";
 import { buildActionPlan } from "@/lib/fingerprint/actions";
 import type { ActionPlan } from "@/lib/fingerprint/actions";
 import type { BehaviouralDimensionKey } from "@/lib/fingerprint/behavioural";
-import { readCandidateVector, hasPreferences } from "@/lib/candidate/server";
+import { readCandidateVector, hasPreferences, readCandidateId } from "@/lib/candidate/server";
+import { isCompanySaved } from "@/lib/candidate/saved";
+import { createAdminClient } from "@/lib/supabase/server";
 import { normalizeCompanySlug } from "@/lib/company-slug";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import Bar from "@/components/charts/Bar";
+import Radar from "@/components/charts/Radar";
+import SaveButton from "@/components/SaveButton";
 
 export const dynamic = "force-dynamic"; // reads a per-visitor cookie
 
@@ -23,9 +27,11 @@ const MAX_COMPANIES = 4;
 interface Column {
   slug: string;
   displayName: string;
+  organizationId: string | null;
   analytics: CompanyAnalytics | null; // null → in the directory but no evidence yet
   fit: FitResult | null;
   plan: ActionPlan | null;
+  saved: boolean;
 }
 
 function parseCompanies(raw: string | string[] | undefined): string[] {
@@ -81,23 +87,65 @@ export default async function ComparePage({
   const bySlug = new Map<string, CompanyAnalytics>();
   if (analytics) for (const c of [...analytics.ranked, ...analytics.unranked]) bySlug.set(c.slug, c);
 
-  // For requested slugs with no evidence, still resolve a display name so the
-  // column reads honestly ("no reports yet") rather than vanishing.
+  // For requested slugs with no evidence, still resolve a display name (and
+  // id, for the save button) so the column reads honestly ("no reports yet")
+  // rather than vanishing.
   const missing = current.filter((s) => !bySlug.has(s));
-  const nameBySlug = new Map<string, string>();
+  const infoBySlug = new Map<string, { id: string; displayName: string }>();
   if (missing.length > 0) {
-    const { data } = await supabase.from("organizations").select("slug, display_name").in("slug", missing);
-    for (const o of (data ?? []) as { slug: string; display_name: string }[]) nameBySlug.set(o.slug, o.display_name);
+    const { data } = await supabase.from("organizations").select("id, slug, display_name").in("slug", missing);
+    for (const o of (data ?? []) as { id: string; slug: string; display_name: string }[]) {
+      infoBySlug.set(o.slug, { id: o.id, displayName: o.display_name });
+    }
   }
 
-  const columns: Column[] = current.map((slug) => {
-    const a = bySlug.get(slug) ?? null;
+  // Saved state (Phase 2, product-experience audit) — read-only, same
+  // cv_candidate cookie the advisor uses. RLS on candidate_saved_companies
+  // needs the service-role client, unlike the anon `supabase` above.
+  const candidateId = readCandidateId();
+  const adminClient = candidateId ? (createAdminClient() as unknown as SupabaseClient) : null;
+
+  const columns: Column[] = await Promise.all(
+    current.map(async (slug) => {
+      const a = bySlug.get(slug) ?? null;
+      const organizationId = a?.organizationId ?? infoBySlug.get(slug)?.id ?? null;
+      const saved =
+        candidateId && adminClient && organizationId
+          ? await isCompanySaved(adminClient, candidateId, organizationId).catch(() => false)
+          : false;
+      return {
+        slug,
+        displayName: a?.displayName ?? infoBySlug.get(slug)?.displayName ?? slug.replace(/-/g, " "),
+        organizationId,
+        analytics: a,
+        fit: a && usePrefs ? computeFit(vector, a.fingerprint) : null,
+        plan: a ? buildActionPlan(a.fingerprint, a.hqs) : null,
+        saved,
+      };
+    })
+  );
+
+  // Radar comparison (Phase 5, product-experience audit) — same dimRate/HQS
+  // reduction the table rows already use, just reshaped for a multi-axis
+  // chart instead of a column of bars. Ghosting is inverted (100 - rate) so
+  // every axis reads "higher is better," matching the table's own Ghosted bar.
+  const RADAR_COLORS = ["text-accent", "text-good", "text-warn", "text-bad"];
+  const radarAxes = ["Ghosting safety", "Offer rate", "Transparency", "Hiring quality"];
+  const radarSeries = columns.map((c, i) => {
+    const ghosting = dimRate(c.analytics, "ghosting");
+    const offer = dimRate(c.analytics, "offer_probability");
+    const transparency = dimRate(c.analytics, "transparency");
+    const hqs = c.analytics?.hqs?.score ?? null;
     return {
-      slug,
-      displayName: a?.displayName ?? nameBySlug.get(slug) ?? slug.replace(/-/g, " "),
-      analytics: a,
-      fit: a && usePrefs ? computeFit(vector, a.fingerprint) : null,
-      plan: a ? buildActionPlan(a.fingerprint, a.hqs) : null,
+      key: c.slug,
+      label: c.displayName,
+      colorClass: RADAR_COLORS[i % RADAR_COLORS.length],
+      values: [
+        ghosting === null ? null : 100 * (1 - ghosting),
+        offer === null ? null : 100 * offer,
+        transparency === null ? null : 100 * transparency,
+        hqs,
+      ],
     };
   });
 
@@ -239,6 +287,15 @@ export default async function ComparePage({
                       <Link href={removeHref(c.slug)} className="block text-[10px] font-mono uppercase tracking-wider text-ink-faint hover:text-bad mt-1">
                         × remove
                       </Link>
+                      {c.organizationId && (
+                        <SaveButton
+                          organizationId={c.organizationId}
+                          initialSaved={c.saved}
+                          className={`mt-2 inline-flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors ${
+                            c.saved ? "text-accent" : "text-ink-faint hover:text-ink"
+                          }`}
+                        />
+                      )}
                     </th>
                   ))}
                 </tr>
@@ -254,6 +311,17 @@ export default async function ComparePage({
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {columns.length >= 2 && (
+          <div className="border border-rule bg-paper-sheet rounded-sm shadow-sheet p-6 sm:p-8 mt-8">
+            <h2 className="font-serif text-lg text-ink mb-1">Shape of the difference</h2>
+            <p className="text-xs text-ink-muted mb-5">
+              Ghosting safety, offer rate, transparency and hiring quality on one chart — every axis reads
+              higher-is-better. A company missing a plotted dimension is left off rather than shown at zero.
+            </p>
+            <Radar axes={radarAxes} series={radarSeries} />
           </div>
         )}
 

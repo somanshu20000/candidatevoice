@@ -52,6 +52,7 @@ const EVIDENCE_TABLES = [
   "hiring_submissions",
   "submission_ratings",
   "submission_emotions",
+  "submission_culture_themes",
 ];
 
 const ACCOUNT_TABLES = ["profiles", "wishlist_items", "saved_comparisons"];
@@ -62,14 +63,18 @@ const CANDIDATE_TABLES = ["candidate_profiles", "candidate_preferences"];
 
 const CANDIDATE_MIGRATION = "0015_candidate_intelligence.sql";
 
+const SAVED_COMPANIES_TABLES = ["candidate_saved_companies"];
+
+const SAVED_COMPANIES_MIGRATION = "0034_candidate_saved_companies.sql";
+
 /**
  * Migrations that legitimately carry an identity column (an account's
  * `user_id`, a candidate's `candidate_id`) yet must remain structurally
  * disjoint from evidence. Each is exempted from the blanket identity-column
  * scan below AND positively asserted here to reference no evidence table —
- * the same guarantee, split across two checks (see 0004 / 0015 headers).
+ * the same guarantee, split across two checks (see 0004 / 0015 / 0034 headers).
  */
-const IDENTITY_MIGRATIONS = [ACCOUNT_MIGRATION, CANDIDATE_MIGRATION];
+const IDENTITY_MIGRATIONS = [ACCOUNT_MIGRATION, CANDIDATE_MIGRATION, SAVED_COMPANIES_MIGRATION];
 
 describe("account migration never references evidence", () => {
   const sql = executableSql(ACCOUNT_MIGRATION);
@@ -136,6 +141,55 @@ describe("candidate intelligence migration never references evidence", () => {
     // entirely by API routes holding the opaque cookie id.
     const candidatePolicies = sql.match(/create policy/g) ?? [];
     expect(candidatePolicies).toHaveLength(0);
+  });
+});
+
+describe("saved companies migration never references evidence (Phase 2, product-experience audit)", () => {
+  // candidate_saved_companies references candidate_profiles(id) — internal to
+  // the candidate graph, exactly like candidate_preferences.candidate_id —
+  // and organizations(id), the one value the candidate/account/evidence
+  // graphs are all allowed to share (an employer, never a person; see 0004's
+  // own header for the precedent). It must reference NOTHING evidence-shaped.
+  const sql = executableSql(SAVED_COMPANIES_MIGRATION);
+
+  it.each(EVIDENCE_TABLES)(
+    "does not reference %s in executable SQL",
+    (table) => {
+      expect(
+        sql.includes(table),
+        `${SAVED_COMPANIES_MIGRATION} references ${table}. A saved-company row must ` +
+          `never be joinable to a hiring report — that link is the whole thing ` +
+          `docs/adr-0001 §4.3 forbids.`
+      ).toBe(false);
+    }
+  );
+
+  it("does not reference auth.users — built on the anonymous candidate identity, not an account", () => {
+    expect(
+      sql.includes("auth.users"),
+      `${SAVED_COMPANIES_MIGRATION} references auth.users. Saved companies deliberately ` +
+        `extend the anonymous candidate_profiles identity (0015), not the dormant, ` +
+        `auth.users-based wishlist_items (0004) — resurrecting that would mean ` +
+        `building real login, a different product decision.`
+    ).toBe(false);
+  });
+
+  it("references candidate_profiles — the same identity candidate_preferences uses", () => {
+    expect(sql).toContain("references candidate_profiles(id)");
+  });
+
+  it("declares its own table", () => {
+    for (const table of SAVED_COMPANIES_TABLES) {
+      expect(sql).toContain(table);
+    }
+  });
+
+  it("enables RLS with no policy (service-role only), mirroring candidate_preferences exactly", () => {
+    for (const table of SAVED_COMPANIES_TABLES) {
+      expect(sql).toContain(`alter table ${table} enable row level security`);
+    }
+    const policies = sql.match(/create policy/g) ?? [];
+    expect(policies).toHaveLength(0);
   });
 });
 

@@ -55,8 +55,10 @@ export { loadExternalDisplayRows, type ExternalReportDisplayRow } from "./load";
 export {
   loadFacetRatings,
   loadFacetEmotions,
+  loadCultureThemes,
   type RawFacetRating,
   type RawEmotionSelection,
+  type RawCultureThemeSelection,
 } from "./load";
 export { minimalEvidenceItem } from "./synthetic";
 export { capSourceShare, DEFAULT_MAX_SOURCE_SHARE } from "./cap";
@@ -84,8 +86,10 @@ export {
   describeCohort,
   parseExperienceBucket,
   parseApplicationChannel,
+  parseReporterType,
   EXPERIENCE_BUCKET_LABELS,
   APPLICATION_CHANNEL_LABELS,
+  REPORTER_TYPE_LABELS,
   type CohortFilter,
 } from "./cohort";
 export { inspectEvidence, type EvidenceInspection, type InspectionBand } from "./inspector";

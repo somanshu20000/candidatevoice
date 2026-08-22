@@ -198,6 +198,28 @@ export async function loadFacetEmotions(client: SupabaseClient, submissionIds: s
   });
 }
 
+export interface RawCultureThemeSelection {
+  submissionId: string;
+  themeKey: string;
+}
+
+/** Culture theme selections (migration 0035, Phase 4 of the product-experience
+ *  audit) — same shape and same anon-readable-via-parent-visibility RLS as
+ *  loadFacetEmotions above; only employee/former-employee submissions ever
+ *  carry a row here, by construction (the wizard gates the picker). */
+export async function loadCultureThemes(client: SupabaseClient, submissionIds: string[]): Promise<RawCultureThemeSelection[]> {
+  if (submissionIds.length === 0) return [];
+  const { data, error } = await client
+    .from("submission_culture_themes")
+    .select("submission_id, theme_key")
+    .in("submission_id", submissionIds);
+  if (error) return [];
+  return (data ?? []).map((r) => {
+    const row = r as Record<string, unknown>;
+    return { submissionId: String(row.submission_id), themeKey: String(row.theme_key) };
+  });
+}
+
 export interface OrganizationRow {
   id: string;
   slug: string;

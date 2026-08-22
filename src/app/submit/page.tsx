@@ -26,6 +26,7 @@ import type {
 } from "@/types/index";
 import type { PerceivedSeriousness, IntentReason } from "@/lib/hiring-intent/events";
 import { INTENT_REASON_VALUES } from "@/lib/hiring-intent/events";
+import { CULTURE_THEMES, type CultureThemeKey } from "@/lib/fingerprint/cultureThemeTaxonomy";
 
 /** Human labels for the closed intent-reason enum (migration 0023). */
 const INTENT_REASON_LABELS: Record<IntentReason, string> = {
@@ -127,6 +128,9 @@ interface FormState {
   would_recommend: WouldRecommend | "";
   tenure_bucket: TenureBucket | "";
   conduct_environment: ConductEnvironment | "";
+  /** Culture theme picks (migration 0035, Phase 4). Employee/former_employee
+   *  only, entirely optional, multi-select. */
+  culture_themes: CultureThemeKey[];
   /** Optional Likert facet ratings (1–5), keyed by facet_key. Absent = not rated.
    *  Everything here is optional: evidence acquisition is the bottleneck, so a
    *  contributor who fills nothing still submits a valid Family A report. */
@@ -239,7 +243,7 @@ const EMPTY: FormState = {
   sensitive_info_purpose_explained: "", sensitive_info_necessary_perceived: "",
   perceived_seriousness: "", intent_reasons: [],
   exit_experience_letter: "", exit_settlement: "", exit_documentation: "",
-  would_recommend: "", tenure_bucket: "", conduct_environment: "",
+  would_recommend: "", tenure_bucket: "", conduct_environment: "", culture_themes: [],
   ratings: {}, emotions: [],
 };
 
@@ -618,6 +622,10 @@ export default function SubmitPage() {
       .filter(([, v]) => typeof v === "number")
       .map(([facet_key, rating]) => ({ facet_key, rating }));
     const emotions = form.emotions.map((emotion_key) => ({ emotion_key }));
+    // Culture themes (0035) — plain key array, employee/former_employee only.
+    // The route forces this empty for a candidate report regardless of what's
+    // sent, same defense-in-depth as every other relationship-gated field.
+    const culture_themes = form.culture_themes;
 
     const response = await fetch("/api/submit", {
       method: "POST",
@@ -626,6 +634,7 @@ export default function SubmitPage() {
         ...payload,
         ratings,
         emotions,
+        culture_themes,
         // The confirmed organization_id (migration 0022) — the route
         // re-verifies this independently; it is never trusted as-is. When
         // the user chose "isn't listed" instead, organization_id is omitted
@@ -1243,6 +1252,40 @@ export default function SubmitPage() {
                 <p className="text-xs text-ink-faint mt-1.5">
                   This is aggregated with other reports and never shown as a single individual account. It is not a substitute for reporting misconduct through a formal channel.
                 </p>
+              </div>
+              {/* Culture themes (migration 0035, Phase 4). A closed, self-
+                  selected set of workplace practices — never free text, never
+                  about a named person. Same button-toggle pattern as the
+                  perceived-seriousness reasons above. */}
+              <div>
+                <span className="block text-[10px] font-mono uppercase tracking-wider text-ink-muted mb-2">
+                  What describes working there? <span className="text-ink-faint normal-case">(optional, pick any)</span>
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  {CULTURE_THEMES.map((theme) => {
+                    const on = form.culture_themes.includes(theme.key);
+                    return (
+                      <button
+                        key={theme.key}
+                        type="button"
+                        aria-pressed={on}
+                        onClick={() =>
+                          setForm((f) => ({
+                            ...f,
+                            culture_themes: on
+                              ? f.culture_themes.filter((t) => t !== theme.key)
+                              : [...f.culture_themes, theme.key],
+                          }))
+                        }
+                        className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
+                          on ? "bg-accent border-accent text-paper-sheet" : "border-rule-strong text-ink-soft bg-paper hover:border-ink-faint"
+                        }`}
+                      >
+                        {theme.label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           )}

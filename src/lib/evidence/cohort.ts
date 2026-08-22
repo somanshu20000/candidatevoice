@@ -21,22 +21,33 @@
 
 import type { EvidenceItem, EvidenceSet } from "./types";
 import { describeBase } from "./aggregate";
-import type { ExperienceBucket, ApplicationChannel } from "@/types/index";
+import type { ExperienceBucket, ApplicationChannel, ReporterType } from "@/types/index";
 
 /**
- * Both dimensions are OPTIONAL and independent — omitting a key means "no
- * constraint on that dimension," not "match items where it's null." This is
- * the natural shape for URL query params, where a missing param means the
+ * All three dimensions are OPTIONAL and independent — omitting a key means
+ * "no constraint on that dimension," not "match items where it's null." This
+ * is the natural shape for URL query params, where a missing param means the
  * visitor didn't pick a value, not that they asked for unreported rows.
+ *
+ * `reporterType` (Phase 3, product-experience audit) is the one axis that was
+ * already implicit at the panel level — CompensationPanel/behavioural
+ * dimensions are candidate-only, CulturePanel/ConductPanel/OffboardingPanel
+ * are employee/former-employee-only — but had no explicit visitor-facing
+ * toggle. This makes that existing segmentation selectable, it doesn't
+ * invent a new one: the eligibility predicates in behavioural.ts/culture.ts/
+ * conduct.ts/offboarding.ts already gate on reporterType internally, so a
+ * cohort filter that also excludes the wrong relationship is redundant with
+ * (never in conflict with) what those panels already do.
  */
 export interface CohortFilter {
   experienceBucket?: ExperienceBucket;
   applicationChannel?: ApplicationChannel;
+  reporterType?: ReporterType;
 }
 
 /** True when the filter constrains nothing — the "everyone" / cleared state. */
 export function isEmptyCohort(filter: CohortFilter): boolean {
-  return filter.experienceBucket === undefined && filter.applicationChannel === undefined;
+  return filter.experienceBucket === undefined && filter.applicationChannel === undefined && filter.reporterType === undefined;
 }
 
 /**
@@ -51,6 +62,7 @@ export function filterByCohort(items: EvidenceItem[], filter: CohortFilter): Evi
   return items.filter((item) => {
     if (filter.experienceBucket !== undefined && item.experienceBucket !== filter.experienceBucket) return false;
     if (filter.applicationChannel !== undefined && item.applicationChannel !== filter.applicationChannel) return false;
+    if (filter.reporterType !== undefined && item.reporterType !== filter.reporterType) return false;
     return true;
   });
 }
@@ -88,6 +100,15 @@ export const APPLICATION_CHANNEL_LABELS: Record<ApplicationChannel, string> = {
   other: "another channel",
 };
 
+/** Only the two relationships a visitor can meaningfully filter TO — the
+ *  page shows everyone by default, so "candidate" here means "interview
+ *  reports only," matching the language every panel already uses. */
+export const REPORTER_TYPE_LABELS: Record<ReporterType, string> = {
+  candidate: "interview reports",
+  employee: "current-employee reports",
+  former_employee: "former-employee reports",
+};
+
 /**
  * Plain-language description of an active cohort, for the panel subtitle —
  * e.g. "3–5 years of experience, applying via a referral". Returns null for
@@ -97,12 +118,14 @@ export function describeCohort(filter: CohortFilter): string | null {
   const parts: string[] = [];
   if (filter.experienceBucket !== undefined) parts.push(EXPERIENCE_BUCKET_LABELS[filter.experienceBucket]);
   if (filter.applicationChannel !== undefined) parts.push(`applying via ${APPLICATION_CHANNEL_LABELS[filter.applicationChannel]}`);
+  if (filter.reporterType !== undefined) parts.push(REPORTER_TYPE_LABELS[filter.reporterType]);
   if (parts.length === 0) return null;
   return parts.join(", ");
 }
 
 const EXPERIENCE_BUCKETS: readonly ExperienceBucket[] = ["0-1", "1-3", "3-5", "5-8", "8+"];
 const APPLICATION_CHANNELS: readonly ApplicationChannel[] = ["referral", "recruiter_outreach", "job_board", "company_website", "other"];
+const REPORTER_TYPES: readonly ReporterType[] = ["candidate", "employee", "former_employee"];
 
 /** Narrow an arbitrary query-param string to a valid bucket, or undefined. Never throws on garbage input — a malformed URL just falls back to "everyone". */
 export function parseExperienceBucket(value: string | undefined): ExperienceBucket | undefined {
@@ -111,4 +134,8 @@ export function parseExperienceBucket(value: string | undefined): ExperienceBuck
 
 export function parseApplicationChannel(value: string | undefined): ApplicationChannel | undefined {
   return value !== undefined && (APPLICATION_CHANNELS as readonly string[]).includes(value) ? (value as ApplicationChannel) : undefined;
+}
+
+export function parseReporterType(value: string | undefined): ReporterType | undefined {
+  return value !== undefined && (REPORTER_TYPES as readonly string[]).includes(value) ? (value as ReporterType) : undefined;
 }

@@ -14,6 +14,7 @@ const NAV_LINKS = [
   { href: "/compare", label: "Compare" },
   { href: "/analytics", label: "Analytics" },
   { href: "/advisor", label: "Advisor" },
+  { href: "/saved", label: "Saved" },
 ] as const;
 
 export default function Navbar() {

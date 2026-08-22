@@ -7,11 +7,14 @@ import {
   loadExternalDisplayRows,
   loadFacetRatings,
   loadFacetEmotions,
+  loadCultureThemes,
   scopeToCohort,
   isEmptyCohort,
   describeCohort,
   parseExperienceBucket,
   parseApplicationChannel,
+  parseReporterType,
+  REPORTER_TYPE_LABELS,
   EXPERIENCE_BUCKET_LABELS,
   APPLICATION_CHANNEL_LABELS,
   inspectEvidence,
@@ -32,12 +35,15 @@ import type { CultureSignal } from "@/lib/fingerprint/culture";
 import { conductSignal } from "@/lib/fingerprint/conduct";
 import type { ConductSignal } from "@/lib/fingerprint/conduct";
 import { buildLikertFingerprint, hasAnyLikertSignal } from "@/lib/fingerprint/likert";
+import { buildCultureThemeCloud, hasAnyCultureThemeSignal } from "@/lib/fingerprint/cultureThemes";
+import type { CultureThemeShare } from "@/lib/fingerprint/cultureThemes";
 import type { LikertFingerprint } from "@/lib/fingerprint/likert";
 import { buildActionPlan } from "@/lib/fingerprint/actions";
 import type { ActionPlan, ActionTone } from "@/lib/fingerprint/actions";
 import type { ForecastLine, ForecastTone } from "@/lib/fingerprint/forecast";
 import { computeFit, explainFit } from "@/lib/advisor";
-import { readCandidateVector, hasPreferences } from "@/lib/candidate/server";
+import { readCandidateVector, hasPreferences, readCandidateId } from "@/lib/candidate/server";
+import { isCompanySaved } from "@/lib/candidate/saved";
 import FitForYou from "@/components/advisor/FitForYou";
 import { computeHqs, HQS_WEIGHTS, HQS_MIN_EFFECTIVE_N } from "@/utils/hqs";
 import type { HqsResult, HqsTier } from "@/utils/hqs";
@@ -61,7 +67,7 @@ import {
 interface Props {
   params: { slug: string };
   /** Cohort filter, read from ?experience=&channel= — see CohortSelector below. */
-  searchParams?: { experience?: string; channel?: string };
+  searchParams?: { experience?: string; channel?: string; relationship?: string };
 }
 
 /**
@@ -517,6 +523,51 @@ function OffboardingPanel({ profile, score }: { profile: OffboardingProfile; sco
 }
 
 /**
+ * Culture theme cloud (Phase 4, product-experience audit) — a closed-enum
+ * tag frequency visualization, NOT a free-text word cloud (see
+ * cultureThemeTaxonomy.ts's header for why). Self-suppressing: every theme
+ * shares the same floor (CULTURE_MIN_EFFECTIVE_N via weightedRate), so this
+ * renders all-or-nothing, never one theme alone at a thin sample.
+ * Font size scales with share — the only "visualization" here, deliberately
+ * plain: no color-coded good/bad, just what people picked and how often.
+ */
+function CultureThemePanel({ themes }: { themes: CultureThemeShare[] }) {
+  // A theme nobody picked adds no information and only clutters the cloud —
+  // filtered here at render time, not in cultureThemes.ts: the underlying
+  // metric.value=0 is still a real, honest number (never suppressed), this
+  // is purely a display choice.
+  const shown = themes.filter((t) => !t.metric.suppressed && t.metric.value !== null && t.metric.value > 0);
+  if (shown.length === 0) return null;
+  const maxShare = Math.max(...shown.map((t) => t.metric.value!));
+  const sorted = [...shown].sort((a, b) => b.metric.value! - a.metric.value!);
+  return (
+    <section className="border border-rule bg-paper-sheet rounded-sm p-6 sm:p-8 mb-8 shadow-sheet">
+      <h2 className="font-serif text-lg sm:text-xl text-ink mb-1">What working there is like</h2>
+      <p className="text-xs text-ink-muted mb-5">
+        Closed-choice themes picked by current and former employees — sized by how often each was
+        picked, never inferred from free text.
+      </p>
+      <div className="flex flex-wrap items-baseline gap-x-4 gap-y-2">
+        {sorted.map((t) => {
+          const relative = maxShare > 0 ? t.metric.value! / maxShare : 0;
+          const fontSize = 13 + relative * 15; // 13px..28px
+          return (
+            <span
+              key={t.key}
+              style={{ fontSize: `${fontSize}px` }}
+              className={t.valence === "positive" ? "text-ink" : "text-ink-soft"}
+              title={`${Math.round(t.metric.value! * 100)}% of ${t.metric.rawDenominator} reports`}
+            >
+              {t.label}
+            </span>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+/**
  * Culture — the "would you recommend" headline, from people who worked there.
  * Self-suppressing below culture.ts's own (higher) anonymity floor.
  */
@@ -756,6 +807,28 @@ function CohortSelector({ companySlug, filter }: { companySlug: string; filter: 
             ))}
           </select>
         </div>
+        <div className="flex-1 min-w-[160px]">
+          <label htmlFor="relationship-filter" className="block text-[10px] font-mono uppercase tracking-wider text-ink-muted mb-1.5">
+            Report type
+          </label>
+          {/* Phase 3, product-experience audit: an explicit toggle for a
+              segmentation the panels below already apply internally
+              (interview panels are candidate-only; culture/conduct/exit
+              panels are employee/former-employee-only) — this filter is
+              redundant with, never in conflict with, that eligibility gating. */}
+          <select
+            key={`relationship-${filter.reporterType ?? "none"}`}
+            id="relationship-filter"
+            name="relationship"
+            defaultValue={filter.reporterType ?? ""}
+            className={COHORT_SELECT_CLS}
+          >
+            <option value="">Everyone</option>
+            {Object.entries(REPORTER_TYPE_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+        </div>
         <button
           type="submit"
           className="bg-accent text-paper-sheet px-4 py-2 text-sm font-medium rounded-sm hover:bg-accent-hover transition-colors shrink-0"
@@ -795,6 +868,7 @@ export default async function CompanyPage({ params, searchParams }: Props) {
   const cohortFilter: CohortFilter = {
     experienceBucket: parseExperienceBucket(searchParams?.experience),
     applicationChannel: parseApplicationChannel(searchParams?.channel),
+    reporterType: parseReporterType(searchParams?.relationship),
   };
   const cohortActive = !isEmptyCohort(cohortFilter);
   const companyName = companySlug.replace(/-/g, " ");
@@ -817,6 +891,19 @@ export default async function CompanyPage({ params, searchParams }: Props) {
   const displayName = profile?.displayName ?? companyName;
   const rawTotal = items.length;
   const effectiveN = evidenceSet?.base.effectiveN ?? 0;
+
+  // Saved-company state (Phase 2, product-experience audit) — read-only here,
+  // same cv_candidate cookie as the advisor. Never touches evidence: only
+  // candidate_saved_companies + the org id already resolved above.
+  const resolvedOrgId = profile?.organizationId ?? evidenceSet?.organizationId ?? null;
+  const candidateId = readCandidateId();
+  // candidate_saved_companies has RLS enabled with no policy (0034, mirrors
+  // candidate_preferences) — only the service role can read it, so this needs
+  // the admin client, unlike the anon `supabase` this page reads evidence with.
+  const initialSaved =
+    candidateId && resolvedOrgId
+      ? await isCompanySaved(createAdminClient() as unknown as SupabaseClient, candidateId, resolvedOrgId).catch(() => false)
+      : false;
 
   // "Companies like this one" — metadata-derived (shared industry/tech terms),
   // so it works even with zero reports. Only queried when the org resolved to a
@@ -878,7 +965,7 @@ export default async function CompanyPage({ params, searchParams }: Props) {
             )}
           </div>
 
-          <CompanyActions slug={companySlug} />
+          <CompanyActions slug={companySlug} organizationId={resolvedOrgId ?? undefined} initialSaved={initialSaved} />
 
           {/* Org resolved but has no metadata yet → try to fetch a provisional
               public profile in the background, then refresh. Mounts ONLY when
@@ -938,11 +1025,15 @@ export default async function CompanyPage({ params, searchParams }: Props) {
   // so no second organization_id lookup. Degrades to [] on any error, same as
   // every other supplementary panel on this page.
   const firstPartySubmissionIds = items.filter((i) => i.family === "first_party").map((i) => i.id);
-  const [facetRatings, facetEmotions] = await Promise.all([
+  const [facetRatings, facetEmotions, cultureThemeRows] = await Promise.all([
     loadFacetRatings(supabase as unknown as SupabaseClient, firstPartySubmissionIds),
     loadFacetEmotions(supabase as unknown as SupabaseClient, firstPartySubmissionIds),
+    loadCultureThemes(supabase as unknown as SupabaseClient, firstPartySubmissionIds),
   ]);
   const likertFingerprint: LikertFingerprint = buildLikertFingerprint(facetRatings, facetEmotions, evidenceSet!.organizationId);
+  // Culture theme cloud (0035, Phase 4) — same "keyed off items already in
+  // hand" shape as the Likert read path above, own reduction (D-001).
+  const cultureThemeCloud = buildCultureThemeCloud(cultureThemeRows, evidenceSet!.organizationId);
 
   // "Fit for you" — only when the visitor has saved priorities. Pure over the
   // fingerprint already built above, so a visitor with a preference vector pays
@@ -986,7 +1077,7 @@ export default async function CompanyPage({ params, searchParams }: Props) {
           </p>
         </div>
 
-        <CompanyActions slug={companySlug} />
+        <CompanyActions slug={companySlug} organizationId={resolvedOrgId ?? undefined} initialSaved={initialSaved} />
 
         {/* THE ANSWER, first and unlocked. Everything below is supporting evidence. */}
         {forecastAvailable && (
@@ -1010,6 +1101,7 @@ export default async function CompanyPage({ params, searchParams }: Props) {
             each self-suppressing below its own floor. Ordered safest-first. */}
         <OffboardingPanel profile={offboarding} score={exitIntegrity} />
         <CulturePanel signal={culture} />
+        {hasAnyCultureThemeSignal(cultureThemeCloud) && <CultureThemePanel themes={cultureThemeCloud} />}
         <ConductPanel signal={conduct} />
 
         {/* Hiring activity timeline (0023) — self-suppressing: renders nothing

@@ -14,6 +14,7 @@ import { sanitizeAndTruncate, FIELD_LIMITS } from "@/utils/sanitize";
 import { checkAndRecordRateLimit } from "@/lib/rate-limit";
 import { getClientIp } from "@/lib/client-ip";
 import { FACET_KEYS, EMOTION_KEYS, type FacetKey, type EmotionKey } from "@/lib/fingerprint/taxonomy";
+import { CULTURE_THEME_KEYS, type CultureThemeKey } from "@/lib/fingerprint/cultureThemeTaxonomy";
 import type { ApplicationChannel, ReporterType, CallDuration, FirstInteractionOutcome } from "@/types/index";
 import { findOrCreateOpportunity, recordHiringEvents } from "@/lib/hiring-intent/match";
 import { buildCandidateEvents } from "@/lib/hiring-intent/events";
@@ -28,6 +29,7 @@ const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
  *  crafted payload cannot ask us to insert thousands of rows in one call. */
 const MAX_RATINGS_PER_SUBMISSION = 32;
 const MAX_EMOTIONS_PER_SUBMISSION = EMOTION_KEYS.length;
+const MAX_CULTURE_THEMES_PER_SUBMISSION = CULTURE_THEME_KEYS.length;
 
 type SubmissionInsert = Database["public"]["Tables"]["hiring_submissions"]["Insert"];
 
@@ -87,6 +89,33 @@ function validateEmotions(raw: unknown): { ok: true; value: EmotionInput[] } | {
     if (seen.has(emo)) return { ok: false, error: `duplicate emotion_key: ${emo}` };
     seen.add(emo);
     out.push({ emotion_key: emo as EmotionKey });
+  }
+  return { ok: true, value: out };
+}
+
+/**
+ * Culture theme selections (migration 0035, Phase 4 of the product-experience
+ * audit) — a plain array of theme_key strings, not objects (a selection
+ * carries no second field, unlike a rating). Culture describes what it's
+ * like WORKING there, so this is validated the same way regardless of
+ * relationship, but the caller only ever populates it for employee/
+ * former_employee — see the isCandidate gate at the call site below, mirroring
+ * how TENURE_FIELDS is collectable from either non-candidate relationship.
+ */
+function validateCultureThemes(raw: unknown): { ok: true; value: CultureThemeKey[] } | { ok: false; error: string } {
+  if (raw === undefined || raw === null) return { ok: true, value: [] };
+  if (!Array.isArray(raw)) return { ok: false, error: "culture_themes must be an array" };
+  if (raw.length > MAX_CULTURE_THEMES_PER_SUBMISSION) {
+    return { ok: false, error: `too many culture_themes (max ${MAX_CULTURE_THEMES_PER_SUBMISSION})` };
+  }
+  const seen = new Set<string>();
+  const out: CultureThemeKey[] = [];
+  for (const item of raw) {
+    const key = typeof item === "string" ? item : "";
+    if (!(CULTURE_THEME_KEYS as readonly string[]).includes(key)) return { ok: false, error: `unknown culture theme: ${key}` };
+    if (seen.has(key)) return { ok: false, error: `duplicate culture theme: ${key}` };
+    seen.add(key);
+    out.push(key as CultureThemeKey);
   }
   return { ok: true, value: out };
 }
@@ -250,6 +279,9 @@ export async function POST(req: NextRequest) {
     const body = (await req.json()) as SubmissionInsert & {
       ratings?: unknown;
       emotions?: unknown;
+      /** Culture theme picks (migration 0035, Phase 4) — employee/
+       *  former_employee only, forced empty for a candidate report below. */
+      culture_themes?: unknown;
       /** Confirmed organization id from the search+confirm flow (0022). */
       organization_id?: unknown;
       company_not_listed?: unknown;
@@ -311,6 +343,15 @@ export async function POST(req: NextRequest) {
     const emotionsValidation = validateEmotions(body.emotions);
     if (!emotionsValidation.ok) {
       return NextResponse.json({ error: emotionsValidation.error }, { status: 400 });
+    }
+    // Culture describes what it's like WORKING there — candidate-never,
+    // forced empty regardless of what the client sent, same discipline as
+    // the interview-only fields being forced null for a non-candidate row.
+    const cultureThemesValidation = isCandidate
+      ? ({ ok: true, value: [] } as const)
+      : validateCultureThemes(body.culture_themes);
+    if (!cultureThemesValidation.ok) {
+      return NextResponse.json({ error: cultureThemesValidation.error }, { status: 400 });
     }
     const channelValidation = validateApplicationChannel(body.application_channel);
     if (!channelValidation.ok) {
@@ -469,14 +510,16 @@ export async function POST(req: NextRequest) {
       await fileCompanyRequest(supabase, requestedName, requestedDomain);
     }
 
-    // Atomic write via migration 0013's RPC — submission + ratings + emotions
-    // in one transaction, so a Family B insert failure never leaves an
+    // Atomic write via migration 0013's RPC (extended by 0035 with a fourth
+    // culture-themes param) — submission + ratings + emotions + culture themes
+    // in one transaction, so a Family B/culture insert failure never leaves an
     // orphaned Family A row behind (or vice versa). Cast because the RPC is
     // not in the hand-authored Database type.
     const { data: submissionId, error } = await (supabase as unknown as SupabaseClient).rpc("submit_hiring_report", {
       p_submission: payload,
       p_ratings: ratingsValidation.value,
       p_emotions: emotionsValidation.value,
+      p_culture_themes: cultureThemesValidation.value,
     });
 
     if (error) {

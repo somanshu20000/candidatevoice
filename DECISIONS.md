@@ -1334,6 +1334,148 @@ together rather than shipping the engine in two half-steps.
 
 ---
 
+## D-032 · Product-experience audit, Phases 1–5 — pseudonym, saved companies, segmentation, culture themes, radar/location visualization
+
+Implements the five-phase sequence from the product-experience gap-matrix
+audit end to end: an anonymous persistent pseudonym, saved companies, an
+explicit employee/candidate segmentation toggle, a closed-enum culture theme
+cloud, and two new visualizations (radar comparison chart, location-by-
+country breakdown). Migrations `0034`/`0035` applied to production and live
+QA-verified via the dedicated `m54-qa-verification-test` org.
+
+**The foundational call, stated up front:** every new identity-bearing piece
+extends `candidate_profiles` / the `cv_candidate` cookie (migration `0015`,
+already live behind `/advisor`) — never the dormant, `auth.users`-based
+`profiles`/`wishlist_items`/`saved_comparisons` (`0004`). That schema requires
+real email login and has zero application-code references anywhere in this
+codebase; resurrecting it would mean building actual account authentication,
+a different product than "anonymous, Reddit-style persistent identity." This
+was the single most load-bearing finding in the audit and determined every
+architectural choice below.
+
+**Phase 1 — pseudonym (`src/lib/candidate/pseudonym.ts`).** Pure, derived,
+never stored — `sha256(candidate_profiles.id)` indexes into two small fixed
+word lists plus a 4-digit number. Same "derive on read, never persist"
+discipline as HQS/confidence (ADR-0001 §3.4). Deliberately NOT user-chosen:
+an editable handle can itself leak identity (reused across sites) and needs a
+uniqueness/moderation surface this product has no reason to build. Rendered
+on `/advisor` and `/saved`.
+
+**Phase 2 — saved companies.** New migration `0034`:
+`candidate_saved_companies(candidate_id → candidate_profiles, organization_id
+→ organizations, created_at)`, RLS enabled with no policy — mirrors
+`candidate_preferences` exactly, including the "only the value both graphs
+are allowed to share is `organization_id`, an employer, never a person" rule
+`0004`'s own header already established. New `/api/candidate/saved` (GET/
+POST/DELETE) mirrors `/api/advisor/preferences`'s mint-on-first-write shape
+precisely. `SaveButton.tsx` (client component, server-rendered
+`initialSaved`) wired into the company page and `/compare`; new `/saved`
+listing page reuses `loadCompanyAnalytics` the same way `/compare` does.
+Live-verified via curl against the real route: mint → save → idempotent
+re-save → list → unsave → list-empty, all correct; the test candidate row
+was cleaned up afterward (candidate rows hold no PII, so this is a courtesy,
+not a safety requirement).
+
+**Phase 3 — segmentation.** `CohortFilter` (`src/lib/evidence/cohort.ts`)
+gained a `reporterType` axis, wired into the existing `CohortSelector` as a
+"Report type" dropdown. **Verified live, and the verification corrected a
+wrong assumption made while writing this entry:** the filter only ever
+affects the "Compare to reports like you" forecast section, exactly like the
+two existing cohort dimensions (`experienceBucket`/`applicationChannel`) —
+it does NOT change `CulturePanel`/`ConductPanel`/`CultureThemePanel`/
+`CompensationPanel`, because those panels are already single-relationship-
+scoped internally (a candidate row never reaches `CulturePanel`'s eligibility
+predicate regardless of any cohort filter) — the code comment at the
+`CohortSelector` call site already said this ("redundant with, never in
+conflict with, that eligibility gating") before live testing confirmed it.
+Live-verified against the QA org: `?relationship=employee` on a cohort with
+only employee/former_employee rows correctly renders "No reports match
+current-employee reports yet" for the forecast (those reports carry no
+stage/outcome data — an honest suppression, not a bug) while
+`?relationship=candidate` correctly forecasts from the 6 candidate QA rows.
+
+**Phase 4 — culture themes.** The literal brief ("word clouds") was
+reinterpreted, not built literally: this product has never collected free
+text about a company and never will (ADR-0001 §1.5, D-013) — a sentence is
+where a recruiter's name or a defamatory claim leaks in. Built instead as a
+**closed, self-selected vocabulary**, the exact same pattern `emotions`
+(`0003`) already established ("self-selected from a fixed list — NOT
+inferred"). New migration `0035`: reference table `culture_themes` (14 keys,
+7 positive/7 negative, e.g. `supportive_managers`/`long_hours_expected`) +
+evidence table `submission_culture_themes` (submission_id, theme_key),
+FK-enforced, RLS mirroring `submission_emotions` exactly. `submit_hiring_report`
+gained a 4th param, `p_culture_themes` (a plain string array — a theme
+selection carries no second field, unlike a rating). New
+`src/lib/fingerprint/cultureThemes.ts` mirrors `likert.ts`'s `emotionShares()`
+reduction verbatim: multi-select tags adapted to weight-1 `EvidenceItem`s,
+reduced with the real `weightedRate`, gated at `CULTURE_MIN_EFFECTIVE_N` (the
+same floor `cultureSignal()` uses — identical population, identical
+re-identification risk). Employee/former-employee-only by construction (only
+that wizard step renders the picker), same implicit scoping
+`submission_ratings`/`submission_emotions` already rely on. New
+`CultureThemePanel` renders a plain frequency-sized tag list — **deliberately
+no good/bad coloring** (unlike every score-bearing panel on the page): a
+theme is a fact someone picked, not a verdict.
+
+**A real bug found and fixed via the RPC signature change, not caught by
+tests:** `create or replace function` does NOT retire an old overload when
+the argument list changes — Postgres resolves by signature, so adding
+`p_culture_themes` created a SECOND `submit_hiring_report(jsonb,jsonb,jsonb,
+jsonb)` alongside the original 3-arg one, leaving the 1-arg call form
+(`submit_hiring_report(p_submission)`, used by every test and by the QA
+verification itself) ambiguous between defaults — a live `42725: function
+... is not unique` error on the very first production QA call. Fixed by
+adding an explicit `drop function if exists submit_hiring_report(jsonb,
+jsonb, jsonb)` before the `create or replace`, both on production directly
+and in the committed migration text, so the migration is correct and
+reproducible from a clean database, not just patched live. **Local
+structural/unit tests never exercise the live Postgres overload-resolution
+rules**, which is exactly why this needed a real `apply_migration` +
+live-call cycle to surface, not just `npx vitest run`.
+
+**A second gap found only by hand-computing expected output before
+live-checking it:** the first `CultureThemePanel` draft rendered ALL 14
+themes whenever the floor cleared, including the 7 nobody had picked (a real,
+honest `metric.value = 0`, not suppressed — `weightedRate`'s suppression
+gates on the respondent pool's effectiveN, identical for every theme, not on
+whether that specific theme got picked). Not wrong data, but a cluttered,
+uninformative cloud. Fixed by filtering to `value > 0` at render time only
+(the underlying `cultureThemes.ts` reduction is untouched — this is a display
+choice, not an engine change).
+
+**Phase 5 — radar chart + location breakdown.** `src/components/charts/
+Radar.tsx` — zero-dependency inline SVG, same idiom as `Bar.tsx`. **Never
+fabricates a zero for missing data**: a series (company) with a null value on
+any plotted axis is dropped from the chart entirely, never pulled to center —
+mirrors `Bar`'s own `value === null` → render nothing, one level up. Wired
+into `/compare` plotting ghosting-safety/offer-rate/transparency/HQS across
+up to 4 companies. `CompanyOverview.tsx` gained `locationBreakdown()` — a
+pure group-by-country reduction over the already-collected
+`NormalizedLocation[]` (city/region/countryCode strings; **no coordinates
+exist in this schema**, so a literal pin-map is not buildable without a
+schema change — a country breakdown answers "where does this company hire"
+with the data actually collected), rendered as existing `Bar` components,
+shown only when ≥2 countries are present.
+
+**Reused everywhere, duplicated nowhere (D-001):** every new reduction
+(`cultureThemes.ts`, the radar series, the location breakdown) is built from
+data an existing loader/engine already produces — no parallel aggregation
+path, no new confidence vocabulary.
+
+**Extended, not bypassed:** `tests/account-evidence-disjointness.test.ts`
+gained a new `describe` block for `0034` (mirroring the `0015` block exactly)
+plus `submission_culture_themes` added to `EVIDENCE_TABLES`. New
+`tests/culture-theme-taxonomy.test.ts` mirrors `fingerprint-taxonomy.test.ts`'s
+emotions parity check verbatim for the new vocabulary.
+
+**Explicitly not built in this pass:** cohort-scoped `CultureThemePanel`
+(the reporterType filter's only real effect remains the forecast section, as
+designed); a literal geographic pin-map (blocked on a schema change, not
+effort); editable/chosen pseudonyms (rejected on identity-leak grounds, see
+Phase 1 above).
+
+---
+
 ## Open questions (decisions *not* yet made)
 
 | # | Question | Blocked on |

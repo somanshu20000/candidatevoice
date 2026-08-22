@@ -7,7 +7,7 @@ import type { RankCandidateCompany, RankedCompany, FitTier } from "@/lib/advisor
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import PreferenceForm from "@/components/advisor/PreferenceForm";
-import { readCandidateVector, hasPreferences } from "@/lib/candidate/server";
+import { readCandidateVector, hasPreferences, readCandidatePseudonym } from "@/lib/candidate/server";
 
 export const dynamic = "force-dynamic"; // reads a per-visitor cookie
 
@@ -46,6 +46,10 @@ function RankedRow({ company }: { company: RankedCompany }) {
 export default async function AdvisorPage() {
   const vector = await readCandidateVector();
   const hasPrefs = hasPreferences(vector);
+  // Pure function of the cookie's opaque id (Phase 1, product-experience
+  // audit) — null until the visitor has saved anything, since only a save
+  // mints the candidate_profiles row the cookie points at.
+  const pseudonym = readCandidatePseudonym();
 
   // Recommendations only when the visitor has priorities to rank against.
   let ranked: RankedCompany[] = [];
@@ -73,7 +77,17 @@ export default async function AdvisorPage() {
       <Navbar />
       <main className="max-w-3xl mx-auto px-4 py-14 w-full flex-1">
         <div className="mb-8 pb-8 border-b border-rule">
-          <h1 className="font-serif text-4xl text-ink mb-2">Your career advisor</h1>
+          <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
+            <h1 className="font-serif text-4xl text-ink">Your career advisor</h1>
+            {pseudonym && (
+              <span
+                className="font-mono text-[11px] uppercase tracking-wider text-ink-faint border border-rule rounded-full px-2.5 py-1"
+                title="A generated, anonymous label for your saved preferences — never a real name, never linked to any report you've submitted."
+              >
+                {pseudonym}
+              </span>
+            )}
+          </div>
           <p className="text-ink-soft leading-relaxed">
             Tell us what matters to you. We rank companies by how their <em>reported hiring
             behaviour</em> matches your priorities — from real evidence, never a guess or a
