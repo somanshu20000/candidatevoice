@@ -1538,6 +1538,94 @@ schema and hashing convention instead).
 
 ---
 
+## D-034 · Browser (Playwright) acquisition layer
+
+Adds a real, working browser-rendering acquisition primitive for sources
+`resilientFetch` (company-intelligence/http.ts) cannot handle — JS-rendered
+content that only exists after client-side execution — while staying inside
+every existing gate: Q-2 legal/ToS clearance, robots.txt, the `demo` source's
+permanent `enabled=false`, and the existing `AcquisitionAdapter` contract.
+
+**The honest scoping call, stated up front:** no JS-rendered hiring-review
+source has cleared Q-2 today. Glassdoor/AmbitionBox carry a recorded
+proprietary no-redistribution license; D-005 forbids LinkedIn outright;
+Reddit — the one cleared pilot source (D-028) — returns structured JSON
+directly and needs no browser at all. Building a "real" adapter against an
+uncleared site would violate the same gate every other adapter in this
+codebase respects. So this proves the thing that's actually new — the
+browser layer genuinely working — against `https://example.com`, this
+codebase's own established "safe, never-real" convention (already used in
+every demo `source_url`), and writes through the exact same pipeline shape a
+real cleared source would use. **The single external dependency blocking
+real acquisition is Q-2 legal/ToS clearance for a specific JS-rendered
+source — not a technical limitation of anything built here.**
+
+**`src/lib/external-intel/browser-fetch.ts`** — `fetchRenderedPage(url)`:
+launches a real, unmodified headless Chromium via Playwright, checks
+robots.txt BEFORE navigating (a self-contained port of
+`company-intelligence/http.ts`'s `robotsAllows()` algorithm — that function
+isn't exported, so this is a small, deliberate duplicate rather than a new
+cross-module dependency for ~15 lines), returns the rendered HTML plus a
+SHA-256 of it. **Explicitly does not implement**: stealth/anti-detection
+plugins, fingerprint spoofing, residential proxies, human-behavior
+simulation, or CAPTCHA solving — a site that blocks headless Chromium stays
+blocked, because that block IS the site's access control.
+
+**`src/lib/external-intel/adapters/browser-demo.ts`** — implements the
+existing `AcquisitionAdapter` contract (same `{key, displayName, load()}`
+shape as `demo.ts`/`reddit.ts`, zero new abstraction), performing a REAL
+Playwright navigation to example.com, then folding deterministic synthetic
+content (there is nothing to extract from example.com) into the same record
+shape `demo.ts` already produces — attributed to the same `demo`
+`external_sources` row (`enabled=false` PERMANENTLY, migration
+`demo_external_source` — structurally can never reach
+`public_external_reports` regardless of moderation outcome, confirmed live:
+`select count(*) from public_external_reports where source_key='demo'` → 0,
+even with 19 rows attributed to it). The fetch's real provenance (rendered
+HTML hash, fetched-at, final URL) rides along on the record for the caller
+to persist — proof a specific row came from an actual browser round-trip,
+not a literal.
+
+**`scripts/browser-acquire-demo.ts`** — the acceptance-test command, run
+live twice:
+1. First run: discovery → source-eligibility check → real Chromium
+   navigation to example.com → extract → canonical content-hash (same
+   algorithm as `src/lib/hiring-intel/normalize.ts`, replicated inline for
+   the same self-containment reason as D-033) → idempotency check (miss) →
+   `external_reports` insert (`verification_status='pending'`) →
+   `external_acquisition_runs` row (`status='awaiting_moderation'`). Printed
+   record id `0588daa5-…`, content_hash, and full provenance including the
+   real rendered-HTML hash.
+2. Second run, identical input: same content_hash computed → idempotency
+   check (hit) → **zero rows written**, printed the existing record's id and
+   original ingestion time instead. **Verified independently via SQL, not
+   just the script's own claim**: `select count(*) from external_reports
+   where content_hash = '…'` → exactly `1` after both runs.
+
+**Idempotency correctly does NOT rely on a database unique constraint** —
+`information_schema` was checked before writing any code:
+`external_reports.content_hash` has no unique index. Idempotency is
+enforced application-side (check-then-insert by content_hash), the same
+pattern `seed-realistic-dataset.ts` and the real importer both already use.
+
+**`playwright` added as a devDependency only** — never imported by
+`src/app/`, confirmed by an unchanged production bundle size after adding
+it (`npm run build`'s route sizes are byte-identical to the prior pass).
+Committed as an isolated single-line `package.json` diff (constructed via
+`git hash-object`/`update-index` against the last committed baseline, not
+`git add`) so it doesn't entangle with the pre-existing, still-uncommitted
+collaborator changes physically present in the same working-tree file —
+same discipline this session has applied to every commit since its start.
+
+**Explicitly not built:** wiring `browser-demo.ts` into the orchestrator's
+adapter registry (`src/lib/external-intel/orchestrator.ts`) — that registry
+currently has in-flight collaborator changes to its type surface (same
+reasoning D-033 gave for not importing `runExternalImport`/`store.ts`
+directly); a real adapter for any specific hiring-review site (blocked on
+Q-2, not effort, as stated above).
+
+---
+
 ## Open questions (decisions *not* yet made)
 
 | # | Question | Blocked on |

@@ -1,6 +1,68 @@
 # NOW — CandidateVoice project state
 
-**Last updated:** 2026-08-22, 10th pass (realistic seed dataset, D-033 — read this section first, in full, before touching code).
+**Last updated:** 2026-08-22, 11th pass (browser/Playwright acquisition layer, D-034 — read this section first, in full, before touching code).
+
+## This pass: browser (Playwright) acquisition layer (D-034)
+
+`src/lib/external-intel/browser-fetch.ts` (real headless-Chromium fetch,
+robots.txt-checked, no stealth/evasion) + `adapters/browser-demo.ts` (same
+`AcquisitionAdapter` contract as `demo.ts`/`reddit.ts`) +
+`scripts/browser-acquire-demo.ts` (the acceptance-test command). Full
+reasoning in D-034; summary here.
+
+**The honest scope call:** no JS-rendered hiring-review source has cleared
+Q-2's legal/ToS gate yet (Glassdoor/AmbitionBox are proprietary-licensed;
+Reddit needs no browser). This proves the browser layer itself genuinely
+works — real Chromium navigation, real robots.txt check, real rendered-HTML
+hash — against `example.com` (this codebase's own established safe-demo
+convention), writing through the exact pipeline shape a real source would
+use. **The one thing blocking real acquisition is Q-2 clearance for a
+specific site, not anything technical.**
+
+**Acceptance test, run live twice — exact commands and results:**
+```
+tsx scripts/browser-acquire-demo.ts
+```
+Run 1: real Chromium launched, navigated to `https://example.com/`, rendered
+HTML hashed (`7b6cd9a1d881c4a6…`), `external_reports` row `0588daa5-…`
+created (`verification_status='pending'`, organization_id correctly
+resolved to the "Verdant Softworks" demo org from D-033's seed data),
+`external_acquisition_runs` row `2449c441-…` (`status='awaiting_moderation'`).
+
+Run 2 (identical input): same content_hash computed → idempotent skip,
+printed the existing record's id, **zero rows written**. Verified
+independently via SQL (not just the script's own claim):
+`select count(*) from external_reports where content_hash = '…'` → `1`.
+Also confirmed structurally non-public: `select count(*) from
+public_external_reports where source_key='demo'` → `0`, despite 19 rows now
+attributed to that source (`enabled=false` permanently blocks it
+regardless of moderation state).
+
+**Verified:** `npx tsc --noEmit` clean, `npx vitest run` 851/851 (unchanged
+— no new unit tests; this is CLI/acquisition tooling exercised via the live
+acceptance run itself, matching the established convention for
+`demo-seed.ts`/`qa-verify-external-pipeline.ts`), `npm run build` clean
+with byte-identical route sizes (confirms `playwright` never reaches the
+app bundle — it's a devDependency only, imported solely by the two new
+`external-intel/` files and the CLI script).
+
+**`package.json`'s `playwright` line was committed as an isolated
+single-line diff** (via `git hash-object`/`update-index` against the last
+committed baseline, not `git add`), so it doesn't entangle with the
+pre-existing, still-uncommitted collaborator changes to the same file —
+same discipline every commit this session has applied. `package-lock.json`
+is left unstaged as always.
+
+**Explicitly not built:** wiring into `orchestrator.ts`'s adapter registry
+(in-flight collaborator changes to that module's types, same reasoning
+D-033 already documented for the importer); a real adapter for any specific
+site (blocked on Q-2 clearance, named above).
+
+---
+
+**Previous pass — 2026-08-22, 10th pass** (realistic seed dataset, D-033).
+
+## Prior pass: realistic seed dataset for development/staging (D-033)
 
 ## This pass: realistic seed dataset for development/staging (D-033)
 
